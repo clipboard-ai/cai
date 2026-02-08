@@ -57,18 +57,17 @@ class WindowController: NSObject, ObservableObject {
     private static let dividerHeight: CGFloat = 1
     private static let rowHeight: CGFloat = 46  // 7 + ~30 content + 7 padding + 2 spacing
     private static let listVerticalPadding: CGFloat = 16  // 6 top + 6 bottom + extra buffer
-    private static let maxWindowHeight: CGFloat = 600
+    private static let maxVisibleRows: CGFloat = 9  // matches ⌘1–9; scroll for the rest
     private static let cornerRadius: CGFloat = 20
 
     /// Minimum visible rows — keeps the window from looking cramped when there are few actions.
-    private static let minVisibleRows: CGFloat = 3
+    private static let minVisibleRows: CGFloat = 4
 
-    /// Calculates dynamic window height based on action count, with a minimum of 3 rows.
+    /// Calculates dynamic window height based on action count, clamped between 4 and 9 rows.
     private func calculateWindowHeight(actionCount: Int) -> CGFloat {
-        let effectiveRows = max(CGFloat(actionCount), Self.minVisibleRows)
+        let effectiveRows = min(max(CGFloat(actionCount), Self.minVisibleRows), Self.maxVisibleRows)
         let contentHeight = effectiveRows * Self.rowHeight + Self.listVerticalPadding
-        let totalHeight = Self.headerHeight + Self.dividerHeight + contentHeight + Self.dividerHeight + Self.footerHeight
-        return min(totalHeight, Self.maxWindowHeight)
+        return Self.headerHeight + Self.dividerHeight + contentHeight + Self.dividerHeight + Self.footerHeight
     }
 
     /// Shows the action window centered on screen with actions for the given content.
