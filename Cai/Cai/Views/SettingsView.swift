@@ -4,6 +4,9 @@ import SwiftUI
 /// and in the menu bar popover. Adapts to parent's size constraints.
 struct SettingsView: View {
     @ObservedObject var settings = CaiSettings.shared
+    /// Optional callback to navigate to shortcuts management (only available
+    /// when rendered inside ActionListWindow, not the menu bar popover).
+    var onShowShortcuts: (() -> Void)? = nil
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -91,6 +94,42 @@ struct SettingsView: View {
                             }
 
                             Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiTextSecondary)
+                        }
+                    }
+
+                    // Custom Shortcuts
+                    settingsSection(title: "Custom Shortcuts", icon: "bolt.circle.fill") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let onShowShortcuts = onShowShortcuts {
+                                Button(action: onShowShortcuts) {
+                                    HStack {
+                                        Text(settings.shortcuts.isEmpty
+                                             ? "Create shortcuts for prompts & URLs"
+                                             : "\(settings.shortcuts.count) shortcut\(settings.shortcuts.count == 1 ? "" : "s") configured")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.caiTextPrimary)
+                                        Spacer()
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(.caiPrimary)
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+                                    }
+                                    .padding(.vertical, 4)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Text(settings.shortcuts.isEmpty
+                                     ? "No shortcuts configured"
+                                     : "\(settings.shortcuts.count) shortcut\(settings.shortcuts.count == 1 ? "" : "s") configured")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.caiTextSecondary)
+                            }
+                            Text("Type to search shortcuts when Cai is open")
                                 .font(.system(size: 11))
                                 .foregroundColor(.caiTextSecondary)
                         }

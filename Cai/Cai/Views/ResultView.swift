@@ -77,6 +77,8 @@ struct ResultView: View {
             }
             .frame(maxHeight: 240)
 
+            Spacer(minLength: 0)
+
             Divider()
                 .background(Color.caiDivider)
 

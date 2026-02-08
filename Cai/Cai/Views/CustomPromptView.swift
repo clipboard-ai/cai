@@ -66,6 +66,8 @@ struct CustomPromptView: View {
                 resultContent
             }
 
+            Spacer(minLength: 0)
+
             Divider()
                 .background(Color.caiDivider)
 
