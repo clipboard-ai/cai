@@ -27,5 +27,6 @@ enum LLMAction {
     case translate(String)
     case define
     case explain
+    case reply
     case custom(String)
 }

@@ -82,6 +82,16 @@ struct ActionGenerator {
             ))
             shortcut += 1
 
+            items.append(ActionItem(
+                id: "reply",
+                title: "Reply",
+                subtitle: "Draft a reply",
+                icon: "arrowshape.turn.up.left",
+                shortcut: shortcut,
+                type: .llmAction(.reply)
+            ))
+            shortcut += 1
+
             let lang = settings.translationLanguage
             items.append(ActionItem(
                 id: "translate",
@@ -111,6 +121,16 @@ struct ActionGenerator {
                 icon: "text.redaction",
                 shortcut: shortcut,
                 type: .llmAction(.summarize)
+            ))
+            shortcut += 1
+
+            items.append(ActionItem(
+                id: "reply",
+                title: "Reply",
+                subtitle: "Draft a reply",
+                icon: "arrowshape.turn.up.left",
+                shortcut: shortcut,
+                type: .llmAction(.reply)
             ))
             shortcut += 1
 
