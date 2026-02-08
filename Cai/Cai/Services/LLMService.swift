@@ -111,7 +111,7 @@ actor LLMService {
     // MARK: - Action Methods
 
     func summarize(_ text: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " The user selected this text in \($0)." } ?? ""
+        let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(
             systemPrompt: "Output only the summary.\(context) No preamble, no introductions.",
             userPrompt: """
@@ -122,7 +122,7 @@ actor LLMService {
     }
 
     func translate(_ text: String, to language: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " The user selected this text in \($0)." } ?? ""
+        let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(
             systemPrompt: "You are a translator.\(context) Output only the translation. Preserve the original tone, formatting, and line breaks.",
             userPrompt: """
@@ -143,7 +143,7 @@ actor LLMService {
     }
 
     func explain(_ text: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " The user selected this text in \($0)." } ?? ""
+        let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(
             systemPrompt: "Explain clearly in plain language.\(context) Under 100 words. Start directly — no preamble.",
             userPrompt: """
@@ -153,8 +153,15 @@ actor LLMService {
                 """)
     }
 
+    func reply(_ text: String, appContext: String? = nil) async throws -> String {
+        let context = appContext.map { " (from \($0))" } ?? ""
+        return try await generate(
+            systemPrompt: "Write a reply to the message below.\(context) Match the tone and formality of the original. Be concise. Output only the reply — no preamble.",
+            userPrompt: text)
+    }
+
     func customAction(_ text: String, instruction: String, appContext: String? = nil) async throws -> String {
-        let context = appContext.map { " The user selected this text in \($0)." } ?? ""
+        let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(
             systemPrompt: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" — the result is copied directly to clipboard.",
             userPrompt: """
