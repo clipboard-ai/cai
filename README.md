@@ -43,6 +43,7 @@ No cloud. No telemetry. No accounts.
 - Select `"123 Main St, NYC 10001"` → Open in Maps
 - Select an email in Mail → Reply, Summarize, Translate
 - Select a Slack message → Reply (matches the conversation tone)
+- Select a recipe → Custom Action: *"Extract ingredients for 2 people"*
 - Select `https://github.com/...` → Open in Browser
 - Select `{"name": "John"}` → Pretty Print JSON
 
