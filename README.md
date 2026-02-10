@@ -46,7 +46,6 @@ No cloud. No telemetry. No accounts.
 - Select a recipe → Custom Action: *"Extract ingredients for 2 people"*
 - Select meeting notes → Shortcut: *"Format as action items with owners and deadlines"*
 - Select a project name → Shortcut: search in Google Drive (`https://drive.google.com/drive/search?q=%s`)
-- Select `https://github.com/...` → Open in Browser
 - Select `{"name": "John"}` → Pretty Print JSON
 
 ## Features
