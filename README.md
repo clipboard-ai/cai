@@ -44,6 +44,8 @@ No cloud. No telemetry. No accounts.
 - Select an email in Mail → Reply, Summarize, Translate
 - Select a Slack message → Reply (matches the conversation tone)
 - Select a recipe → Custom Action: *"Extract ingredients for 2 people"*
+- Select meeting notes → Shortcut: *"Format as action items with owners and deadlines"*
+- Select a project name → Shortcut: search in Google Drive (`https://drive.google.com/drive/search?q=%s`)
 - Select `https://github.com/...` → Open in Browser
 - Select `{"name": "John"}` → Pretty Print JSON
 
@@ -55,6 +57,7 @@ No cloud. No telemetry. No accounts.
 - **Custom shortcuts** — save reusable prompts and URL templates, access them by typing to filter
 - **Type-to-filter** — start typing to filter actions and shortcuts by name
 - **Clipboard history** — access last 9 items with ⌘0
+- **App-aware** — Cai knows which app you're in (Mail, Slack, Safari…) and adapts AI responses to match the context
 - **Keyboard-first** — navigate and execute everything without touching the mouse
 - **Privacy-first** — no internet required, no data leaves your machine
 
@@ -67,8 +70,8 @@ No cloud. No telemetry. No accounts.
 | **Meeting** | Date/time references | Create Calendar Event, Open in Maps |
 | **Address** | Street patterns, "at [Place Name]" | Open in Maps |
 | **Word** | 1–2 words | Define, Explain, Translate, Search |
-| **Short Text** | < 100 characters | Explain, Translate, Search |
-| **Long Text** | 100+ characters | Summarize, Translate, Search |
+| **Short Text** | < 100 characters | Explain, Reply, Translate, Search |
+| **Long Text** | 100+ characters | Summarize, Reply, Translate, Search |
 
 All text types also get **Custom Action** (⌘1) for free-form AI prompts.
 
@@ -165,7 +168,7 @@ Left-click the Cai menu bar icon (or click the logo in the action window footer)
 | **Search URL** | Base URL for web searches | Brave Search |
 | **Maps Provider** | Apple Maps or Google Maps | Apple Maps |
 | **Model Provider** | LM Studio, Ollama, or Custom | LM Studio |
-| **Custom Action Prompt** | Your own AI instruction for ⌘1 | — |
+| **Custom Action** | Free-form AI prompt via ⌘1 | — |
 | **Custom Shortcuts** | Save prompt and URL shortcuts for instant access | — |
 | **Launch at Login** | Start Cai automatically | On |
 
