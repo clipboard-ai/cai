@@ -8,6 +8,10 @@ actor LLMService {
 
     static let shared = LLMService()
 
+    /// Cached model name from the last successful status check.
+    /// Used in generate() requests — some providers (LM Studio) require it.
+    private var cachedModelName: String?
+
     // MARK: - Status
 
     struct Status {
@@ -16,7 +20,7 @@ actor LLMService {
         let error: String?
     }
 
-    /// Checks if the LLM server is reachable by hitting GET /v1/models.
+    /// Checks if the LLM server is reachable and has a loaded model.
     func checkStatus() async -> Status {
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
         guard !baseURL.isEmpty,
@@ -33,14 +37,17 @@ actor LLMService {
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 return Status(available: false, modelName: nil, error: "Server returned non-200")
             }
-            // Try to extract first model name
+            // Extract first model name — required by some providers
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let models = json["data"] as? [[String: Any]],
                let first = models.first,
                let modelId = first["id"] as? String {
+                cachedModelName = modelId
                 return Status(available: true, modelName: modelId, error: nil)
             }
-            return Status(available: true, modelName: nil, error: nil)
+            // Server is up but no models loaded
+            cachedModelName = nil
+            return Status(available: false, modelName: nil, error: "No models loaded")
         } catch {
             return Status(available: false, modelName: nil, error: error.localizedDescription)
         }
@@ -63,8 +70,13 @@ actor LLMService {
         }
         messages.append(ChatMessage(role: "user", content: userPrompt))
 
+        // If no cached model name, fetch it now
+        if cachedModelName == nil {
+            _ = await checkStatus()
+        }
+
         let body = ChatRequest(
-            model: "", // Empty string — server uses its loaded model
+            model: cachedModelName ?? "",
             messages: messages,
             temperature: 0.3,
             max_tokens: 1024

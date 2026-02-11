@@ -54,6 +54,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             permissionsManager.startPollingForPermission()
         }
 
+        // Auto-detect LLM provider on launch:
+        // - First launch (no saved preference): probe all known ports
+        // - Saved provider not reachable: fall back to whatever is running
+        Task {
+            let status = await LLMService.shared.checkStatus()
+            if !status.available {
+                await CaiSettings.shared.autoDetectProvider()
+            }
+        }
+
         // Setup global hotkey (Option+C)
         setupHotKey()
 

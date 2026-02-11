@@ -140,6 +140,55 @@ class CaiSettings: ObservableObject {
         }
     }
 
+    // MARK: - Provider Auto-Detection
+
+    /// Known provider endpoints to probe, in priority order.
+    /// LM Studio first (fastest inference), then Ollama, then common alternatives.
+    private static let providerProbes: [(provider: ModelProvider?, url: String)] = [
+        (.lmstudio, "http://127.0.0.1:1234"),
+        (.ollama,   "http://127.0.0.1:11434"),
+        (nil,       "http://127.0.0.1:1337"),   // Jan AI
+        (nil,       "http://127.0.0.1:8080"),   // LocalAI / Open WebUI
+        (nil,       "http://127.0.0.1:4891"),   // GPT4All
+    ]
+
+    /// Probes known provider URLs and selects the first one that responds.
+    /// Only call this when `hasExplicitProvider` is false (first launch).
+    func autoDetectProvider() async {
+        for probe in Self.providerProbes {
+            guard let url = URL(string: "\(probe.url)/v1/models") else { continue }
+
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 2
+
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                // Verify server responds 200 AND has at least one model loaded
+                if let http = response as? HTTPURLResponse, http.statusCode == 200,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let models = json["data"] as? [[String: Any]],
+                   !models.isEmpty {
+                    await MainActor.run {
+                        if let knownProvider = probe.provider {
+                            self.modelProvider = knownProvider
+                            print("Auto-detected provider: \(knownProvider.rawValue)")
+                        } else {
+                            // Not a built-in provider — use Custom with this URL
+                            self.modelProvider = .custom
+                            self.customModelURL = probe.url
+                            print("Auto-detected custom provider at \(probe.url)")
+                        }
+                    }
+                    return
+                }
+            } catch {
+                continue
+            }
+        }
+        // No provider found — keep the default (LM Studio)
+        print("No running LLM provider detected — defaulting to LM Studio")
+    }
+
     // MARK: - Launch at Login
 
     private func updateLaunchAtLogin(_ enabled: Bool) {

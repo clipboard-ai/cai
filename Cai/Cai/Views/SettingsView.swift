@@ -9,6 +9,9 @@ struct SettingsView: View {
     /// when rendered inside ActionListWindow, not the menu bar popover).
     var onShowShortcuts: (() -> Void)? = nil
 
+    /// LLM connection status — checked each time settings opens.
+    @State private var llmConnected: Bool? = nil  // nil = checking
+
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
@@ -27,6 +30,7 @@ struct SettingsView: View {
                 Text("v\(appVersion)")
                     .font(.system(size: 11))
                     .foregroundColor(.caiTextSecondary.opacity(0.4))
+                llmStatusIndicator
                 permissionIndicator
             }
             .padding(.horizontal, 20)
@@ -99,6 +103,8 @@ struct SettingsView: View {
                                 .font(.system(size: 11))
                                 .foregroundColor(.caiTextSecondary)
                         }
+                        .onChange(of: settings.modelProvider) { _ in forceCheckLLMStatus() }
+                        .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus() }
                     }
 
                     // Custom Shortcuts
@@ -161,6 +167,44 @@ struct SettingsView: View {
         }
         .onAppear {
             permissions.checkAccessibilityPermission()
+            checkLLMStatus()
+        }
+    }
+
+    // MARK: - LLM Status
+
+    private var llmStatusIndicator: some View {
+        Group {
+            if let connected = llmConnected {
+                Image(systemName: connected ? "bolt.fill" : "bolt.slash.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(connected ? .green : .orange)
+            } else {
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .frame(width: 12, height: 12)
+            }
+        }
+        .help(llmConnected == true
+              ? "LLM server connected"
+              : llmConnected == false
+                ? "LLM server not reachable — check your provider"
+                : "Checking LLM connection…")
+    }
+
+    private func checkLLMStatus() {
+        // Skip re-check if already connected — avoid unnecessary network calls
+        guard llmConnected != true else { return }
+        forceCheckLLMStatus()
+    }
+
+    private func forceCheckLLMStatus() {
+        llmConnected = nil
+        Task {
+            let status = await LLMService.shared.checkStatus()
+            await MainActor.run {
+                llmConnected = status.available
+            }
         }
     }
 
