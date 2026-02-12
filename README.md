@@ -92,35 +92,18 @@ All text types also get **Custom Action** (⌘1) for free-form AI prompts.
 
 1. Download the `.dmg` from the [latest release](../../releases/latest)
 2. Open the DMG and drag **Cai.app** to your Applications folder
-3. Open the app — macOS will show a warning (the app is not notarized through the Apple Developer Program)
-4. Follow the [first launch setup](#first-launch-setup) below
-5. Configure your LLM server in Preferences (left-click menu bar icon)
+3. Open the app and grant Accessibility permission ([see below](#first-launch-setup))
+4. Configure your LLM server in Preferences (left-click menu bar icon)
 
 ### First Launch Setup
 
-Cai is free and open source. Since it's not distributed through the App Store or notarized with a paid Apple Developer account ($99/year), macOS Gatekeeper will block it on first launch. This is normal for any open-source Mac app distributed outside the App Store.
+On first launch, Cai needs **Accessibility permission** to use the global hotkey (⌥C) and simulate ⌘C to copy your selection.
 
-**Step 1** — Open Cai. macOS blocks it. Click **Done**.
-
-<img src="assets/setup-1-blocked.png" width="300" alt="macOS blocks Cai on first launch">
-
-**Step 2** — Go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
-
-<img src="assets/setup-2-open-anyway-settings.png" width="500" alt="Privacy & Security showing Open Anyway button">
-
-**Step 3** — Click **Open Anyway** in the confirmation dialog.
-
-<img src="assets/setup-3-open-anyway.png" width="300" alt="Open Anyway confirmation dialog">
-
-**Step 4** — Authenticate with Touch ID or your password.
-
-<img src="assets/setup-4-authenticate.png" width="300" alt="Touch ID or password authentication">
-
-**Step 5** — Cai needs Accessibility permission to use the global hotkey (⌥C) and simulate ⌘C to copy your selection. Click **Open System Settings**.
+**Step 1** — Open Cai. It will ask for Accessibility permission. Click **Open System Settings**.
 
 <img src="assets/setup-5-accessibility-prompt.png" width="450" alt="Accessibility permission prompt">
 
-**Step 6** — Toggle Cai **on** in the Accessibility list.
+**Step 2** — Toggle Cai **on** in the Accessibility list.
 
 <img src="assets/setup-6-accessibility-toggle.png" width="450" alt="Accessibility toggle enabled for Cai">
 
@@ -208,11 +191,12 @@ Save frequently used prompts and URL templates as shortcuts. They appear when yo
 
 ## Troubleshooting
 
-**macOS blocks Cai from opening**
-This is expected — see [First Launch Setup](#first-launch-setup) above. Alternatively, remove the quarantine flag via Terminal:
+**macOS blocks Cai from opening (building from source)**
+If you build from source without a Developer ID, macOS Gatekeeper may block the app. Remove the quarantine flag via Terminal:
 ```bash
 xattr -cr /Applications/Cai.app
 ```
+This is not needed when installing from the [official DMG release](../../releases/latest).
 
 **Global shortcut ⌥C doesn't work**
 - Check **System Settings → Privacy & Security → Accessibility** — make sure Cai is listed and enabled
