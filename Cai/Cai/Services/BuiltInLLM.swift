@@ -10,6 +10,16 @@ actor BuiltInLLM {
     private var assignedPort: Int = 8690
     private let portRange = 8690...8699
 
+    /// Stored model path for automatic restart after unexpected termination
+    private var lastModelPath: String?
+
+    /// Tracks consecutive crash restarts to avoid infinite loops
+    private var restartCount = 0
+    private let maxRestarts = 3
+
+    /// Set to true during intentional stop() to suppress auto-restart
+    private var stoppingIntentionally = false
+
     /// Base URL for the running server (e.g. "http://127.0.0.1:8690")
     var serverURL: String { "http://127.0.0.1:\(assignedPort)" }
 
@@ -102,18 +112,25 @@ actor BuiltInLLM {
         }
 
         self.process = proc
+        self.lastModelPath = modelPath
+        self.stoppingIntentionally = false
         writePIDFile(pid: proc.processIdentifier)
 
         print("🦙 llama-server started on port \(assignedPort) (PID: \(proc.processIdentifier))")
 
         // Wait until the server is responsive
         try await waitUntilReady(timeout: 30)
+
+        // Successful start — reset crash counter
+        restartCount = 0
     }
 
     // MARK: - Stop
 
     /// Gracefully stops the llama-server subprocess.
     func stop() {
+        stoppingIntentionally = true
+
         guard let proc = process, proc.isRunning else {
             cleanupPIDFile()
             process = nil
@@ -231,11 +248,52 @@ actor BuiltInLLM {
     }
 
     private func handleTermination(exitCode: Int32) {
-        if exitCode != 0 && exitCode != 15 { // 15 = SIGTERM (normal shutdown)
-            print("🦙 llama-server exited unexpectedly (code: \(exitCode))")
-        }
         cleanupPIDFile()
         process = nil
+
+        // SIGTERM (15) or SIGINT (2) from intentional stop — no restart needed
+        if stoppingIntentionally || exitCode == 15 || exitCode == 2 {
+            return
+        }
+
+        print("🦙 llama-server exited unexpectedly (code: \(exitCode))")
+
+        guard let modelPath = lastModelPath, restartCount < maxRestarts else {
+            if restartCount >= maxRestarts {
+                print("🦙 Max restart attempts (\(maxRestarts)) reached — giving up")
+                postToast("AI engine failed to restart")
+            }
+            return
+        }
+
+        restartCount += 1
+        print("🦙 Auto-restarting llama-server (attempt \(restartCount)/\(maxRestarts))")
+        postToast("AI engine stopped unexpectedly. Restarting...")
+
+        Task {
+            // Brief delay before restart to avoid tight loops
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            do {
+                try await start(modelPath: modelPath)
+                print("🦙 Auto-restart successful")
+            } catch {
+                print("🦙 Auto-restart failed: \(error.localizedDescription)")
+                if restartCount >= maxRestarts {
+                    postToast("AI engine failed to restart")
+                }
+            }
+        }
+    }
+
+    /// Posts a toast notification on the main thread via NotificationCenter.
+    private func postToast(_ message: String) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .caiShowToast,
+                object: nil,
+                userInfo: ["message": message]
+            )
+        }
     }
 
     private func writePIDFile(pid: Int32) {
