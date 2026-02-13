@@ -72,6 +72,15 @@ struct DestinationsManagementView: View {
                         builtInRow(dest)
                     }
 
+                    // Permission hint for built-in AppleScript destinations
+                    if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled }) {
+                        Text("First use will ask for permission to control each app.")
+                            .font(.system(size: 9))
+                            .foregroundColor(.caiTextSecondary.opacity(0.4))
+                            .padding(.horizontal, 16)
+                            .padding(.top, 2)
+                    }
+
                     if !settings.outputDestinations.filter({ !$0.isBuiltIn }).isEmpty {
                         Divider()
                             .padding(.vertical, 4)
