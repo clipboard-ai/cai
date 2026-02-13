@@ -202,8 +202,8 @@ struct CustomPromptView: View {
                 .frame(maxWidth: .infinity, minHeight: 120)
                 .padding()
             } else {
-                Text(result)
-                    .font(.system(size: 13, design: .monospaced))
+                Text(markdownAttributedString(from: result))
+                    .font(.system(size: 13))
                     .foregroundColor(.caiTextPrimary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,6 +211,24 @@ struct CustomPromptView: View {
             }
         }
         .frame(maxHeight: 240)
+    }
+
+    // MARK: - Markdown
+
+    /// Parses a markdown string into an AttributedString for rich rendering.
+    /// Falls back to plain text if markdown parsing fails.
+    private func markdownAttributedString(from text: String) -> AttributedString {
+        do {
+            var attributed = try AttributedString(
+                markdown: text,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            )
+            attributed.font = .system(size: 13)
+            attributed.foregroundColor = .caiTextPrimary
+            return attributed
+        } catch {
+            return AttributedString(text)
+        }
     }
 
     // MARK: - Private

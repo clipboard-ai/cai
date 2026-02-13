@@ -14,6 +14,8 @@ struct SettingsView: View {
 
     /// LLM connection status — checked each time settings opens.
     @State private var llmConnected: Bool? = nil  // nil = checking
+    /// Available models from the current provider
+    @State private var availableModels: [String] = []
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -101,23 +103,39 @@ struct SettingsView: View {
                                     .textFieldStyle(.roundedBorder)
                                     .font(.system(size: 12, design: .monospaced))
                                     .accessibilityLabel("Custom model URL")
+
+                                Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
                             }
 
-                            Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
-                                .font(.system(size: 11))
-                                .foregroundColor(.caiTextSecondary)
+                            // Model picker
+                            HStack(spacing: 8) {
+                                Picker("", selection: $settings.modelName) {
+                                    Text("Auto-detect").tag("")
+                                    ForEach(availableModels, id: \.self) { model in
+                                        Text(model).tag(model)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .accessibilityLabel("Model selection")
 
-                            TextField("Model name (blank = auto-detect)", text: $settings.modelName)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 12, design: .monospaced))
-                                .accessibilityLabel("Model name override")
+                                Button(action: { fetchAvailableModels() }) {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundColor(.caiTextSecondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Refresh model list")
+                            }
 
-                            Text("e.g. qwen3-4b, ministral-3b-2410, gemma3:4b")
+                            Text("Select a model or leave on Auto-detect")
                                 .font(.system(size: 10))
                                 .foregroundColor(.caiTextSecondary.opacity(0.6))
                         }
-                        .onChange(of: settings.modelProvider) { _ in forceCheckLLMStatus() }
-                        .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus() }
+                        .onChange(of: settings.modelProvider) { _ in forceCheckLLMStatus(); fetchAvailableModels() }
+                        .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus(); fetchAvailableModels() }
                         .onChange(of: settings.modelName) { _ in forceCheckLLMStatus() }
                     }
 
@@ -180,6 +198,7 @@ struct SettingsView: View {
         .onAppear {
             permissions.checkAccessibilityPermission()
             checkLLMStatus()
+            fetchAvailableModels()
         }
     }
 
@@ -281,6 +300,15 @@ struct SettingsView: View {
             let status = await LLMService.shared.checkStatus()
             await MainActor.run {
                 llmConnected = status.available
+            }
+        }
+    }
+
+    private func fetchAvailableModels() {
+        Task {
+            let models = await LLMService.shared.availableModels()
+            await MainActor.run {
+                availableModels = models
             }
         }
     }

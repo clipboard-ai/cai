@@ -558,11 +558,6 @@ struct ActionListWindow: View {
             }
 
             Spacer()
-
-            // Model name chip — click to switch models
-            if !currentModelName.isEmpty {
-                modelChipView
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -596,21 +591,26 @@ struct ActionListWindow: View {
                 }
             }
         } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: 4) {
                 Image(systemName: "cpu")
-                    .font(.system(size: 8, weight: .medium))
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.caiSurface.opacity(0.5))
+                    )
                 Text(currentModelName)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 6, weight: .bold))
+                    .font(.system(size: 6, weight: .semibold))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
             }
-            .foregroundColor(.caiTextSecondary.opacity(0.6))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(Color.caiSurface.opacity(0.5))
-            .cornerRadius(4)
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .onAppear {
             Task {
@@ -646,20 +646,28 @@ struct ActionListWindow: View {
 
     /// Shortens model names for the chip display
     /// e.g. "lmstudio-community/qwen3-4b-GGUF" → "qwen3-4b"
+    /// Max display chars for model name in footer chip (keeps footer from wrapping)
+    private let maxModelNameDisplay = 10
+
     private func shortenModelName(_ name: String) -> String {
         // Strip org prefix (e.g. "lmstudio-community/")
         let base = name.components(separatedBy: "/").last ?? name
         // Strip common suffixes
-        return base
+        let short = base
             .replacingOccurrences(of: "-GGUF", with: "")
             .replacingOccurrences(of: ".gguf", with: "")
             .replacingOccurrences(of: ":latest", with: "")
+        // Always truncate to a fixed width so all models look consistent
+        if short.count > maxModelNameDisplay {
+            return String(short.prefix(maxModelNameDisplay)) + "…"
+        }
+        return short
     }
 
     // MARK: - Footer (Main Action View)
 
     private var mainFooterView: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             KeyboardHint(key: "↑↓", label: "Navigate")
             KeyboardHint(key: "↵", label: "Select")
             KeyboardHint(key: "Esc", label: selectionState.filterText.isEmpty ? "Close" : "Clear")
@@ -669,15 +677,21 @@ struct ActionListWindow: View {
 
             Spacer()
 
+            // Model name chip — click to switch models
+            if !currentModelName.isEmpty {
+                modelChipView
+            }
+
             Button(action: {
                 selectionState.filterText = ""
                 withAnimation(.easeInOut(duration: 0.15)) {
                     showSettings = true
                 }
             }) {
-                CaiLogo(color: .caiTextSecondary.opacity(0.35))
-                    .frame(height: 12)
-                    .padding(.horizontal, 4)
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .padding(.horizontal, 2)
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
             }

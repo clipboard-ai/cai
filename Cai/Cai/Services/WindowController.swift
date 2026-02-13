@@ -51,7 +51,7 @@ class WindowController: NSObject, ObservableObject {
     private static let resumeTimeout: TimeInterval = 10
 
     /// Layout constants
-    private static let windowWidth: CGFloat = 500
+    private static let windowWidth: CGFloat = 540
     private static let headerHeight: CGFloat = 52
     private static let footerHeight: CGFloat = 36
     private static let dividerHeight: CGFloat = 1

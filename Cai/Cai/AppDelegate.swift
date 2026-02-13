@@ -46,7 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create popover for left-click — shows settings
         popover = NSPopover()
         popover?.contentSize = NSSize(width: 340, height: 440)
-        popover?.behavior = .transient
+        popover?.behavior = .semitransient
         let settingsView = SettingsView(
             onShowShortcuts: { [weak self] in
                 self?.popover?.performClose(nil)

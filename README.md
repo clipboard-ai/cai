@@ -144,17 +144,17 @@ Cai works with any OpenAI-compatible local server. AI is optional — system act
 
 ### Recommended Models
 
-Cai works best with small, fast models optimized for short text tasks. Speed matters more than size — you want sub-second responses for clipboard actions.
+Cai works best with small, fast instruct models (3–4B parameters). Speed matters more than size — you want sub-second responses for clipboard actions.
 
 | Model | Params | Why | Install |
 |---|---|---|---|
-| **Qwen3 4B** | 4B | Fast, great instruction following. Our top pick. | `lms get qwen3-4b` / `ollama pull qwen3:4b` |
-| **Qwen3 30B-A3B** | 30B (3B active) | Smarter output, similar speed to 4B (MoE). Needs 16GB+ RAM. | `lms get qwen3-30b-a3b` / `ollama pull qwen3:30b-a3b` |
+| **Ministral 3B** | 3B | Fastest real-world feel — concise output, clean markdown, fewest tokens per answer. Our top pick. | `lms get ministral-3-3b-instruct-2512` / `ollama pull ministral:3b` |
+| **Qwen3 4B** | 4B | Smartest at this size — best on STEM, coding, and instruction following. Can be verbose. | `lms get qwen3-4b` / `ollama pull qwen3:4b` |
+| **Llama 3.2 3B** | 3B | Reliable all-rounder — solid summarization, Q&A, and general conversation. | `lms get llama-3.2-3b-instruct` / `ollama pull llama3.2:3b` |
 | **Gemma 3 4B** | 4B | Strong multilingual support (140+ languages). | `lms get gemma-3-4b` / `ollama pull gemma3:4b` |
-| **Phi-4 Mini** | 3.8B | Lightweight, good at structured tasks. | `lms get phi-4-mini` / `ollama pull phi4-mini` |
-| **Qwen3 8B** | 8B | Best quality in the small range. Slower than 4B. | `lms get qwen3-8b` / `ollama pull qwen3:8b` |
+| **Qwen3 8B** | 8B | Best quality in the small range. Slower than 3–4B. | `lms get qwen3-8b` / `ollama pull qwen3:8b` |
 
-> **Tip:** Start with **Qwen3 4B** — it's the best balance of speed and quality for clipboard tasks like summarize, translate, reply, and explain.
+> **Tip:** Start with **Ministral 3B** — it produces the most concise, well-formatted responses, which means faster real-world speed for clipboard actions like summarize, translate, reply, and explain. Switch to **Qwen3 4B** if you need more intelligence (e.g., complex instructions or coding tasks).
 >
 > **LM Studio vs Ollama:** Both work great with Cai. LM Studio tends to be noticeably faster for inference (aggressive Metal GPU acceleration, speculative decoding), which matters for a clipboard tool where you want sub-second responses. Ollama is simpler to set up and manage models via CLI. Try both and see what feels snappier on your hardware.
 
