@@ -159,7 +159,7 @@ actor LLMService {
     func summarize(_ text: String, appContext: String? = nil) async throws -> String {
         let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(
-            systemPrompt: "Output only the summary.\(context) Use markdown: **bold** for key terms, bullet points for structure. No preamble, no introductions.",
+            systemPrompt: "Output only the summary.\(context) Use bullet points. No preamble, no introductions.",
             userPrompt: """
                 Summarize this in 2-3 bullet points. Each bullet should be one sentence. Capture the key points only.
 
@@ -191,7 +191,7 @@ actor LLMService {
     func explain(_ text: String, appContext: String? = nil) async throws -> String {
         let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(
-            systemPrompt: "Explain clearly in plain language.\(context) Use markdown for emphasis (**bold** for key terms). Under 100 words. Start directly — no preamble.",
+            systemPrompt: "Explain clearly in plain language.\(context) Under 100 words. Start directly — no preamble.",
             userPrompt: """
                 Explain this:
 
@@ -209,7 +209,7 @@ actor LLMService {
     func customAction(_ text: String, instruction: String, appContext: String? = nil) async throws -> String {
         let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(
-            systemPrompt: "Output ONLY the processed text.\(context) Use markdown formatting when appropriate. No comments, no introductions, no \"Here is...\" — the result is copied directly to clipboard.",
+            systemPrompt: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" — the result is copied directly to clipboard.",
             userPrompt: """
                 \(instruction)
 
