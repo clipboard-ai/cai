@@ -23,6 +23,10 @@ struct ActionListWindow: View {
     @ObservedObject private var settings = CaiSettings.shared
     @ObservedObject private var updateChecker = UpdateChecker.shared
 
+    @State private var availableModels: [String] = []
+    @State private var showModelPicker: Bool = false
+    @State private var currentModelName: String = ""
+
     /// Corner radius matching Spotlight's rounded appearance
     private let cornerRadius: CGFloat = 20
 
@@ -554,9 +558,102 @@ struct ActionListWindow: View {
             }
 
             Spacer()
+
+            // Model name chip — click to switch models
+            if !currentModelName.isEmpty {
+                modelChipView
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .onAppear { fetchCurrentModel() }
+    }
+
+    private var modelChipView: some View {
+        Menu {
+            if availableModels.isEmpty {
+                Text("Loading models…")
+            } else {
+                ForEach(availableModels, id: \.self) { model in
+                    Button(action: {
+                        settings.modelName = model
+                        currentModelName = shortenModelName(model)
+                    }) {
+                        HStack {
+                            Text(model)
+                            if model == resolvedFullModelName() {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+
+                Button("Auto-detect") {
+                    settings.modelName = ""
+                    Task { await refreshCurrentModel() }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 8, weight: .medium))
+                Text(currentModelName)
+                    .font(.system(size: 9, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6, weight: .bold))
+            }
+            .foregroundColor(.caiTextSecondary.opacity(0.6))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.caiSurface.opacity(0.5))
+            .cornerRadius(4)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .onAppear {
+            Task {
+                availableModels = await LLMService.shared.availableModels()
+            }
+        }
+    }
+
+    private func fetchCurrentModel() {
+        Task {
+            let status = await LLMService.shared.checkStatus()
+            let userModel = settings.modelName
+            let name = !userModel.isEmpty ? userModel : (status.modelName ?? "")
+            await MainActor.run {
+                currentModelName = shortenModelName(name)
+            }
+        }
+    }
+
+    private func refreshCurrentModel() async {
+        let status = await LLMService.shared.checkStatus()
+        let name = status.modelName ?? ""
+        await MainActor.run {
+            currentModelName = shortenModelName(name)
+        }
+    }
+
+    /// Returns the full model name that's currently active (user override or auto-detected)
+    private func resolvedFullModelName() -> String {
+        let userModel = settings.modelName
+        return !userModel.isEmpty ? userModel : currentModelName
+    }
+
+    /// Shortens model names for the chip display
+    /// e.g. "lmstudio-community/qwen3-4b-GGUF" → "qwen3-4b"
+    private func shortenModelName(_ name: String) -> String {
+        // Strip org prefix (e.g. "lmstudio-community/")
+        let base = name.components(separatedBy: "/").last ?? name
+        // Strip common suffixes
+        return base
+            .replacingOccurrences(of: "-GGUF", with: "")
+            .replacingOccurrences(of: ".gguf", with: "")
+            .replacingOccurrences(of: ":latest", with: "")
     }
 
     // MARK: - Footer (Main Action View)

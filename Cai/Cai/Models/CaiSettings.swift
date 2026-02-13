@@ -14,6 +14,7 @@ class CaiSettings: ObservableObject {
         static let translationLanguage = "cai_translationLanguage"
         static let modelProvider = "cai_modelProvider"
         static let customModelURL = "cai_customModelURL"
+        static let modelName = "cai_modelName"
         static let mapsProvider = "cai_mapsProvider"
         static let launchAtLogin = "cai_launchAtLogin"
         static let shortcuts = "cai_shortcuts"
@@ -66,6 +67,12 @@ class CaiSettings: ObservableObject {
     /// Only used when modelProvider == .custom
     @Published var customModelURL: String {
         didSet { defaults.set(customModelURL, forKey: Keys.customModelURL) }
+    }
+
+    /// Optional model name override. When set, this is sent in API requests
+    /// instead of auto-detecting the first available model. Leave blank to auto-detect.
+    @Published var modelName: String {
+        didSet { defaults.set(modelName, forKey: Keys.modelName) }
     }
 
     @Published var mapsProvider: MapsProvider {
@@ -137,6 +144,8 @@ class CaiSettings: ObservableObject {
 
         self.customModelURL = defaults.string(forKey: Keys.customModelURL)
             ?? "http://127.0.0.1:8080"
+
+        self.modelName = defaults.string(forKey: Keys.modelName) ?? ""
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple

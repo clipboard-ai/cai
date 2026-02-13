@@ -53,6 +53,33 @@ actor LLMService {
         }
     }
 
+    // MARK: - Available Models
+
+    /// Fetches the list of all available model names from the server.
+    func availableModels() async -> [String] {
+        let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
+        guard !baseURL.isEmpty,
+              baseURL.hasPrefix("http"),
+              let url = URL(string: "\(baseURL)/v1/models") else {
+            return []
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                return []
+            }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let models = json["data"] as? [[String: Any]] {
+                return models.compactMap { $0["id"] as? String }
+            }
+        } catch {}
+        return []
+    }
+
     // MARK: - Generation
 
     /// Sends a chat completion request and returns the assistant's response text.
@@ -70,13 +97,20 @@ actor LLMService {
         }
         messages.append(ChatMessage(role: "user", content: userPrompt))
 
-        // If no cached model name, fetch it now
-        if cachedModelName == nil {
-            _ = await checkStatus()
+        // Use user-specified model name if set, otherwise auto-detect
+        let userModel = await MainActor.run { CaiSettings.shared.modelName }
+        let modelToUse: String
+        if !userModel.isEmpty {
+            modelToUse = userModel
+        } else {
+            if cachedModelName == nil {
+                _ = await checkStatus()
+            }
+            modelToUse = cachedModelName ?? ""
         }
 
         let body = ChatRequest(
-            model: cachedModelName ?? "",
+            model: modelToUse,
             messages: messages,
             temperature: 0.3,
             max_tokens: 1024

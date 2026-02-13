@@ -106,9 +106,19 @@ struct SettingsView: View {
                             Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
                                 .font(.system(size: 11))
                                 .foregroundColor(.caiTextSecondary)
+
+                            TextField("Model name (blank = auto-detect)", text: $settings.modelName)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12, design: .monospaced))
+                                .accessibilityLabel("Model name override")
+
+                            Text("e.g. qwen3-4b, ministral-3b-2410, gemma3:4b")
+                                .font(.system(size: 10))
+                                .foregroundColor(.caiTextSecondary.opacity(0.6))
                         }
                         .onChange(of: settings.modelProvider) { _ in forceCheckLLMStatus() }
                         .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus() }
+                        .onChange(of: settings.modelName) { _ in forceCheckLLMStatus() }
                     }
 
                     // Custom Shortcuts
