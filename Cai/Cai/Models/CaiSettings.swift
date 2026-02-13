@@ -19,11 +19,14 @@ class CaiSettings: ObservableObject {
         static let launchAtLogin = "cai_launchAtLogin"
         static let shortcuts = "cai_shortcuts"
         static let outputDestinations = "cai_outputDestinations"
+        static let builtInModelPath = "cai_builtInModelPath"
+        static let builtInSetupDone = "cai_builtInSetupDone"
     }
 
     // MARK: - Model Provider
 
     enum ModelProvider: String, CaseIterable, Identifiable {
+        case builtIn = "Built-in"
         case lmstudio = "LM Studio"
         case ollama = "Ollama"
         case custom = "Custom"
@@ -33,6 +36,7 @@ class CaiSettings: ObservableObject {
         /// Base URL (without /v1) for each provider
         var defaultURL: String {
             switch self {
+            case .builtIn: return "http://127.0.0.1:8690"
             case .lmstudio: return "http://127.0.0.1:1234"
             case .ollama: return "http://127.0.0.1:11434"
             case .custom: return ""
@@ -115,11 +119,23 @@ class CaiSettings: ObservableObject {
     /// Resolved model base URL based on provider selection
     var modelURL: String {
         switch modelProvider {
+        case .builtIn:
+            return modelProvider.defaultURL  // Updated dynamically if port changes
         case .lmstudio, .ollama:
             return modelProvider.defaultURL
         case .custom:
             return customModelURL
         }
+    }
+
+    /// Path to the downloaded built-in model GGUF file
+    @Published var builtInModelPath: String {
+        didSet { defaults.set(builtInModelPath, forKey: Keys.builtInModelPath) }
+    }
+
+    /// Whether the built-in model setup has been completed at least once
+    @Published var builtInSetupDone: Bool {
+        didSet { defaults.set(builtInSetupDone, forKey: Keys.builtInSetupDone) }
     }
 
     // MARK: - Common Languages
@@ -146,6 +162,9 @@ class CaiSettings: ObservableObject {
             ?? "http://127.0.0.1:8080"
 
         self.modelName = defaults.string(forKey: Keys.modelName) ?? ""
+
+        self.builtInModelPath = defaults.string(forKey: Keys.builtInModelPath) ?? ""
+        self.builtInSetupDone = defaults.bool(forKey: Keys.builtInSetupDone)
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple
@@ -220,8 +239,16 @@ class CaiSettings: ObservableObject {
                 continue
             }
         }
-        // No provider found — keep the default (LM Studio)
-        print("No running LLM provider detected — defaulting to LM Studio")
+        // No external provider found — use built-in if a model is downloaded
+        if builtInSetupDone && !builtInModelPath.isEmpty &&
+           FileManager.default.fileExists(atPath: builtInModelPath) {
+            await MainActor.run {
+                self.modelProvider = .builtIn
+                print("No external provider — using built-in LLM")
+            }
+            return
+        }
+        print("No running LLM provider detected")
     }
 
     // MARK: - Launch at Login
