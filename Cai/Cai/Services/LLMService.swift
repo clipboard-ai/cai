@@ -202,7 +202,7 @@ actor LLMService {
     func reply(_ text: String, appContext: String? = nil) async throws -> String {
         let context = appContext.map { " (from \($0))" } ?? ""
         return try await generate(
-            systemPrompt: "Write a reply to the message below.\(context) Match the tone and formality of the original. Be concise. Output only the reply — no preamble.",
+            systemPrompt: "Write a reply to the message below.\(context) Match the tone, language and formality of the original. Be concise. Output only the reply — no preamble and no bold letters.",
             userPrompt: text)
     }
 
