@@ -26,10 +26,9 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.caiPrimary)
-                Text("Settings")
+                CaiLogo(color: .caiPrimary)
+                    .frame(width: 18, height: 10.5)
+                Text("Cai Settings")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.caiTextPrimary)
                 Spacer()
@@ -191,6 +190,21 @@ struct SettingsView: View {
                         }
                     }
 
+                    // Privacy
+                    settingsSection(title: "Privacy", icon: "hand.raised") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Send crash reports", isOn: $settings.crashReportingEnabled)
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                                .accessibilityLabel("Send crash reports to help improve Cai")
+
+                            Text("When enabled, anonymous crash data is sent to help fix bugs. No clipboard content, personal data, or usage patterns are collected.")
+                                .font(.system(size: 10))
+                                .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
                     // General
                     settingsSection(title: "General", icon: "gearshape") {
                         Toggle("Launch at Login", isOn: $settings.launchAtLogin)
@@ -199,14 +213,32 @@ struct SettingsView: View {
                             .accessibilityLabel("Launch Cai at login")
                     }
 
-                    // Hotkey reminder
+                    // Feedback & hotkey
                     HStack(spacing: 6) {
-                        Image(systemName: "keyboard")
-                            .font(.system(size: 11, weight: .medium))
+                        Button(action: {
+                            if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "envelope")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("Send Feedback")
+                                    .font(.system(size: 11))
+                            }
                             .foregroundColor(.caiTextSecondary.opacity(0.5))
-                        Text("Press \u{2325}C to trigger Cai anywhere")
-                            .font(.system(size: 11))
-                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+
+                        HStack(spacing: 4) {
+                            Image(systemName: "keyboard")
+                                .font(.system(size: 10, weight: .medium))
+                            Text("\u{2325}C")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.caiTextSecondary.opacity(0.5))
                     }
                 }
                 .padding(.horizontal, 20)

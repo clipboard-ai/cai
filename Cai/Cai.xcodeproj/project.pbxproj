@@ -49,6 +49,8 @@
 		CAI00132 /* ModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00133 /* ModelDownloader.swift */; };
 		CAI00134 /* ModelSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00135 /* ModelSetupView.swift */; };
 		CAI00136 /* bin in Resources */ = {isa = PBXBuildFile; fileRef = CAI00137 /* bin */; };
+		CAI00138 /* CrashReportingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00139 /* CrashReportingService.swift */; };
+		CAI00140 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00141 /* Sentry */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -107,6 +109,7 @@
 		CAI00133 /* ModelDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloader.swift; sourceTree = "<group>"; };
 		CAI00135 /* ModelSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetupView.swift; sourceTree = "<group>"; };
 		CAI00137 /* bin */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bin; path = Resources/bin; sourceTree = "<group>"; };
+		CAI00139 /* CrashReportingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReportingService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -115,6 +118,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CAI00026 /* HotKey in Frameworks */,
+				CAI00140 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -206,6 +210,7 @@
 				CAI00125 /* OutputDestinationService.swift */,
 				CAI00131 /* BuiltInLLM.swift */,
 				CAI00133 /* ModelDownloader.swift */,
+				CAI00139 /* CrashReportingService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -245,6 +250,7 @@
 			name = Cai;
 			packageProductDependencies = (
 				CAI00027 /* HotKey */,
+				CAI00141 /* Sentry */,
 			);
 			productName = Cai;
 			productReference = CAI00009 /* Cai.app */;
@@ -298,6 +304,7 @@
 			mainGroup = CAI00013;
 			packageReferences = (
 				CAI00028 /* XCRemoteSwiftPackageReference "HotKey" */,
+				CAI00142 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			productRefGroup = CAI00015 /* Products */;
 			projectDirPath = "";
@@ -371,6 +378,7 @@
 				CAI00130 /* BuiltInLLM.swift in Sources */,
 				CAI00132 /* ModelDownloader.swift in Sources */,
 				CAI00134 /* ModelSetupView.swift in Sources */,
+				CAI00138 /* CrashReportingService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -652,6 +660,14 @@
 				minimumVersion = 0.2.0;
 			};
 		};
+		CAI00142 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -659,6 +675,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CAI00028 /* XCRemoteSwiftPackageReference "HotKey" */;
 			productName = HotKey;
+		};
+		CAI00141 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CAI00142 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

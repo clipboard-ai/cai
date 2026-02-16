@@ -127,6 +127,7 @@ actor LLMService {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch let urlError as URLError {
+            CrashReportingService.shared.addBreadcrumb(category: "llm", message: "LLM request failed: \(urlError.localizedDescription)", level: .error)
             switch urlError.code {
             case .timedOut:
                 throw LLMError.timeout

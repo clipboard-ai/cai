@@ -21,6 +21,8 @@ class CaiSettings: ObservableObject {
         static let outputDestinations = "cai_outputDestinations"
         static let builtInModelPath = "cai_builtInModelPath"
         static let builtInSetupDone = "cai_builtInSetupDone"
+        static let crashReportingEnabled = "cai_crashReportingEnabled"
+        static let crashReportingPromptShown = "cai_crashReportingPromptShown"
     }
 
     // MARK: - Model Provider
@@ -142,6 +144,23 @@ class CaiSettings: ObservableObject {
         didSet { defaults.set(builtInSetupDone, forKey: Keys.builtInSetupDone) }
     }
 
+    /// Whether crash reporting is enabled (opt-in, default false)
+    @Published var crashReportingEnabled: Bool {
+        didSet {
+            defaults.set(crashReportingEnabled, forKey: Keys.crashReportingEnabled)
+            if crashReportingEnabled {
+                CrashReportingService.shared.startIfEnabled()
+            } else {
+                CrashReportingService.shared.stop()
+            }
+        }
+    }
+
+    /// Whether the one-time crash reporting prompt has been shown
+    @Published var crashReportingPromptShown: Bool {
+        didSet { defaults.set(crashReportingPromptShown, forKey: Keys.crashReportingPromptShown) }
+    }
+
     // MARK: - Common Languages
 
     static let defaultSearchURL = "https://search.brave.com/search?q="
@@ -171,6 +190,9 @@ class CaiSettings: ObservableObject {
 
         self.builtInModelPath = defaults.string(forKey: Keys.builtInModelPath) ?? ""
         self.builtInSetupDone = defaults.bool(forKey: Keys.builtInSetupDone)
+
+        self.crashReportingEnabled = defaults.bool(forKey: Keys.crashReportingEnabled)
+        self.crashReportingPromptShown = defaults.bool(forKey: Keys.crashReportingPromptShown)
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple

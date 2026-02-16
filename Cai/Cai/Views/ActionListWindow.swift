@@ -404,6 +404,9 @@ struct ActionListWindow: View {
                 updateBannerView(version: version)
             }
 
+            // Crash reporting opt-in — shown once
+            crashReportingPrompt
+
             Divider()
                 .background(Color.caiDivider)
 
@@ -537,6 +540,43 @@ struct ActionListWindow: View {
             } else {
                 NSCursor.pop()
             }
+        }
+    }
+
+    // MARK: - Crash Reporting Prompt
+
+    @ViewBuilder
+    private var crashReportingPrompt: some View {
+        if !settings.crashReportingPromptShown {
+            HStack(spacing: 8) {
+                Image(systemName: "ladybug")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary)
+
+                Text("Send anonymous crash reports?")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextPrimary)
+
+                Spacer()
+
+                Button("Enable") {
+                    settings.crashReportingEnabled = true
+                    settings.crashReportingPromptShown = true
+                }
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.caiPrimary)
+                .buttonStyle(.plain)
+
+                Button("Nope") {
+                    settings.crashReportingPromptShown = true
+                }
+                .font(.system(size: 10))
+                .foregroundColor(.caiTextSecondary)
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(Color.caiSurface.opacity(0.4))
         }
     }
 
@@ -741,6 +781,7 @@ struct ActionListWindow: View {
     // MARK: - Actions
 
     private func executeAction(_ action: ActionItem) {
+        CrashReportingService.shared.addBreadcrumb(category: "action", message: "Execute: \(action.title)")
         switch action.type {
         case .jsonPrettyPrint(let json):
             showResultView(title: "Pretty Print JSON") {

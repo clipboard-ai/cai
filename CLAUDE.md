@@ -48,6 +48,7 @@ Cai/Cai/
 │   ├── LLMService.swift        # Actor-based OpenAI-compatible API client
 │   ├── BuiltInLLM.swift        # Actor — manages bundled llama-server subprocess
 │   ├── ModelDownloader.swift   # Downloads GGUF models with progress/resume
+│   ├── CrashReportingService.swift # Opt-in Sentry crash reporting (privacy-first)
 │   ├── OutputDestinationService.swift # Actor-based executor for all destination types
 │   ├── SystemActions.swift     # URL, Maps, Calendar ICS, Search, Clipboard
 │   ├── HotKeyManager.swift     # Global Option+C registration
@@ -140,6 +141,20 @@ Cai bundles `llama-server` (from llama.cpp) for zero-dependency LLM inference. U
 Ministral 3B Q4_K_M (~2.15 GB) from Hugging Face. Hardcoded in `ModelDownloader.defaultModel`.
 
 See `_docs/BUILT-IN-LLM.md` for full implementation plan and `_docs/dmg-assets/BUILD-DMG.md` for binary signing/update instructions.
+
+## Crash Reporting (Sentry)
+
+Opt-in crash reporting via Sentry, disabled by default. Respects privacy-first philosophy.
+
+- **`CrashReportingService`** singleton wraps all Sentry SDK calls
+- Controlled by `CaiSettings.crashReportingEnabled` (default: `false`)
+- Initialized early in `AppDelegate.applicationDidFinishLaunching()`
+- Runtime toggle: `SentrySDK.start()` / `SentrySDK.close()` — no restart needed
+- One-time prompt: inline banner in `ActionListWindow` (same pattern as update banner)
+- Breadcrumbs at: content detection, action execution, built-in LLM lifecycle
+- **No PII**: `sendDefaultPii = false`, no session tracking, no screenshots, no performance tracing
+- `beforeSend` strips `user` and `serverName` as safety net
+- dSYM upload required for symbolicated crash reports (see `BUILD-DMG.md`)
 
 ## Bundle IDs
 
@@ -244,6 +259,7 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
 ## Dependencies
 
 - **HotKey** (SPM): [soffes/HotKey](https://github.com/soffes/HotKey) v0.2.0+ — global keyboard shortcut
+- **Sentry** (SPM): [getsentry/sentry-cocoa](https://github.com/getsentry/sentry-cocoa) v8.0.0+ — opt-in crash reporting
 - **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8022 — local LLM inference engine (ARM64 macOS)
 - **macOS 13.0+** (Ventura) deployment target
 

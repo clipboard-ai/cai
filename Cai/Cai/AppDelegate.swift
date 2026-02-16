@@ -18,6 +18,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingLLMSetup = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Start crash reporting early if user has opted in
+        CrashReportingService.shared.startIfEnabled()
+
         // Create the status item in the menu bar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -283,6 +286,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Detect content type
             let detection = contentDetector.detect(content)
             print("Detected: \(detection.type.rawValue) (confidence: \(detection.confidence))")
+            CrashReportingService.shared.addBreadcrumb(category: "content", message: "Detected: \(detection.type.rawValue)")
 
             // Show the action window immediately — LLM errors handled at execution time
             windowController.showActionWindow(

@@ -127,6 +127,7 @@ actor BuiltInLLM {
 
         // Successful start — reset crash counter
         restartCount = 0
+        CrashReportingService.shared.addBreadcrumb(category: "llm", message: "Built-in LLM started on port \(assignedPort)")
     }
 
     // MARK: - Stop
@@ -261,6 +262,7 @@ actor BuiltInLLM {
         }
 
         print("🦙 llama-server exited unexpectedly (code: \(exitCode))")
+        CrashReportingService.shared.addBreadcrumb(category: "llm", message: "Built-in LLM crashed (exit code: \(exitCode))", level: .error)
 
         guard let modelPath = lastModelPath, restartCount < maxRestarts else {
             if restartCount >= maxRestarts {
@@ -282,6 +284,11 @@ actor BuiltInLLM {
                 print("🦙 Auto-restart successful")
             } catch {
                 print("🦙 Auto-restart failed: \(error.localizedDescription)")
+                CrashReportingService.shared.captureError(error, context: [
+                    "action": "builtInLLM_autoRestart",
+                    "attempt": restartCount,
+                    "maxRestarts": maxRestarts
+                ])
                 if restartCount >= maxRestarts {
                     postToast("AI engine failed to restart")
                 }
