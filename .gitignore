@@ -99,3 +99,9 @@ iOSInjectionProject/
 
 # Documentation
 _docs/
+openspec/
+AGENTS.md
+.opencode/
+.rambles
+.tend-stack
+docs/plans/
