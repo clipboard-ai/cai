@@ -335,13 +335,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Ensure the built-in server is stopped on any termination path
-        let semaphore = DispatchSemaphore(value: 0)
-        Task {
-            await BuiltInLLM.shared.stop()
-            semaphore.signal()
-        }
-        _ = semaphore.wait(timeout: .now() + 3)
+        // Stop the built-in server — terminate() sends SIGTERM immediately,
+        // grace-period cleanup runs on background queues independently.
+        Task { await BuiltInLLM.shared.stop() }
     }
 
     // MARK: - Model Setup Window
