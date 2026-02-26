@@ -25,7 +25,7 @@ class CaiSettings: ObservableObject {
         static let crashReportingEnabled = "cai_crashReportingEnabled"
         static let crashReportingPromptShown = "cai_crashReportingPromptShown"
         static let hotKeyCombo = "cai_hotKeyCombo"
-        static let apiKey = "cai_apiKey"
+        // apiKey moved to Keychain — see KeychainHelper
     }
 
     // MARK: - Model Provider
@@ -165,9 +165,15 @@ class CaiSettings: ObservableObject {
     }
 
     /// Optional API key for authenticated LLM providers (cloud APIs, LM Studio with auth).
-    /// Empty string = no auth header sent. Stored locally, never logged in release builds.
+    /// Empty string = no auth header sent. Stored in Keychain (encrypted at rest), never logged.
     @Published var apiKey: String {
-        didSet { defaults.set(apiKey, forKey: Keys.apiKey) }
+        didSet {
+            if apiKey.isEmpty {
+                KeychainHelper.delete(forKey: "cai_apiKey")
+            } else {
+                KeychainHelper.set(apiKey, forKey: "cai_apiKey")
+            }
+        }
     }
 
     /// Custom hotkey combo stored as dictionary. nil = default (Option+C).
@@ -239,7 +245,18 @@ class CaiSettings: ObservableObject {
         self.crashReportingPromptShown = defaults.bool(forKey: Keys.crashReportingPromptShown)
 
         self.hotKeyComboDict = defaults.dictionary(forKey: Keys.hotKeyCombo) as? [String: Int]
-        self.apiKey = defaults.string(forKey: Keys.apiKey) ?? ""
+
+        // API key: read from Keychain, migrate from UserDefaults if needed
+        if let keychainKey = KeychainHelper.get(forKey: "cai_apiKey") {
+            self.apiKey = keychainKey
+        } else if let legacyKey = defaults.string(forKey: "cai_apiKey"), !legacyKey.isEmpty {
+            // One-time migration from UserDefaults → Keychain
+            KeychainHelper.set(legacyKey, forKey: "cai_apiKey")
+            defaults.removeObject(forKey: "cai_apiKey")
+            self.apiKey = legacyKey
+        } else {
+            self.apiKey = ""
+        }
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple

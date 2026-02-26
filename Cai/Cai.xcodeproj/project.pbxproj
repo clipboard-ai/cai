@@ -31,6 +31,7 @@
 		CAI00090 /* CustomPromptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00091 /* CustomPromptView.swift */; };
 		CAI00092 /* ToastWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00093 /* ToastWindow.swift */; };
 		CAI00143 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00144 /* ShortcutRecorderView.swift */; };
+		CAI00145 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00146 /* KeychainHelper.swift */; };
 		CAI00100 /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00101 /* LLMService.swift */; };
 		CAI00102 /* SystemActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00103 /* SystemActions.swift */; };
 		CAI00104 /* ActionGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00105 /* ActionGenerator.swift */; };
@@ -112,6 +113,7 @@
 		CAI00135 /* ModelSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetupView.swift; sourceTree = "<group>"; };
 		CAI00137 /* bin */ = {isa = PBXFileReference; lastKnownFileType = folder; name = bin; path = Resources/bin; sourceTree = "<group>"; };
 		CAI00139 /* CrashReportingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReportingService.swift; sourceTree = "<group>"; };
+		CAI00146 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -214,6 +216,7 @@
 				CAI00131 /* BuiltInLLM.swift */,
 				CAI00133 /* ModelDownloader.swift */,
 				CAI00139 /* CrashReportingService.swift */,
+				CAI00146 /* KeychainHelper.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -383,6 +386,7 @@
 				CAI00132 /* ModelDownloader.swift in Sources */,
 				CAI00134 /* ModelSetupView.swift in Sources */,
 				CAI00138 /* CrashReportingService.swift in Sources */,
+				CAI00145 /* KeychainHelper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
