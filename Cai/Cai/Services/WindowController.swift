@@ -217,7 +217,13 @@ class WindowController: NSObject, ObservableObject {
         // The SwiftUI view hierarchy stays alive, preserving result/prompt state.
         if let window = window {
             window.alphaValue = 0
-            window.orderOut(nil)
+            // Defer orderOut to next run loop — SwiftUI's NSHostingView may still
+            // have pending constraint updates that crash if the window is removed
+            // from the display hierarchy mid-cycle.
+            let windowToOrderOut = window
+            DispatchQueue.main.async {
+                windowToOrderOut.orderOut(nil)
+            }
 
             // Replace any previous cache
             cachedWindow = window
