@@ -53,6 +53,7 @@ class ShortcutRecorderNSView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.borderWidth = 1
+        layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.12).cgColor
 
         // Label
         label.font = .systemFont(ofSize: 12, weight: .medium)
@@ -100,12 +101,14 @@ class ShortcutRecorderNSView: NSView {
             label.textColor = .tertiaryLabelColor
             layer?.borderColor = NSColor.controlAccentColor.cgColor
             layer?.borderWidth = 1.5
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor
             clearButton.isHidden = true
         } else if let combo = currentCombo {
             label.stringValue = combo.description
             label.textColor = .labelColor
             layer?.borderColor = NSColor.separatorColor.cgColor
             layer?.borderWidth = 1
+            layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.12).cgColor
             clearButton.isHidden = false
             clearButton.contentTintColor = .tertiaryLabelColor
         } else {
@@ -113,6 +116,7 @@ class ShortcutRecorderNSView: NSView {
             label.textColor = .tertiaryLabelColor
             layer?.borderColor = NSColor.separatorColor.cgColor
             layer?.borderWidth = 1
+            layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.12).cgColor
             clearButton.isHidden = true
         }
     }
