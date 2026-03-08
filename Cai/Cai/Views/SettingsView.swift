@@ -143,7 +143,7 @@ struct SettingsView: View {
                                     .foregroundColor(.caiTextSecondary.opacity(0.6))
 
                                 // API Key (optional, for cloud or auth-enabled servers)
-                                SecureField("Optional — only needed for cloud or auth-enabled servers", text: $settings.apiKey)
+                                SecureField("Optional", text: $settings.apiKey)
                                     .textFieldStyle(.roundedBorder)
                                     .font(.system(size: 12, design: .monospaced))
                                     .accessibilityLabel("API key for authenticated LLM providers")
