@@ -263,20 +263,33 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var builtInModelSection: some View {
-        if settings.builtInSetupDone && !settings.builtInModelPath.isEmpty {
-            // Model is downloaded — show info
+        let localModels = CaiSettings.scanBuiltInModels()
+
+        if !localModels.isEmpty {
+            // Model(s) available — show picker
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(.green)
-                    Text(ModelDownloader.defaultModel.name)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.caiTextPrimary)
-                    Spacer()
-                    Text(ModelDownloader.defaultModel.formattedSize)
-                        .font(.system(size: 10))
-                        .foregroundColor(.caiTextSecondary)
+                    Picker("", selection: Binding(
+                        get: { settings.builtInModelFileName },
+                        set: { newFileName in
+                            let newPath = BuiltInLLM.modelsDirectory
+                                .appendingPathComponent(newFileName).path
+                            guard newPath != settings.builtInModelPath else { return }
+                            switchBuiltInModel(to: newPath)
+                        }
+                    )) {
+                        ForEach(localModels, id: \.self) { fileName in
+                            Text(fileName).tag(fileName)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityLabel("Built-in model selection")
+
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 11))
+                        .foregroundColor(.caiTextSecondary.opacity(0.5))
+                        .help("Drop .gguf files into ~/Library/Application Support/Cai/models/")
                 }
 
                 HStack(spacing: 12) {
@@ -293,7 +306,7 @@ struct SettingsView: View {
                 }
             }
         } else {
-            // No model downloaded — show download prompt
+            // No models — show download prompt
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.circle")
@@ -322,23 +335,39 @@ struct SettingsView: View {
         }
     }
 
+    private func switchBuiltInModel(to newPath: String) {
+        Task {
+            settings.builtInModelPath = newPath
+            try? await BuiltInLLM.shared.restart(modelPath: newPath)
+            forceCheckLLMStatus()
+        }
+    }
+
     private func deleteBuiltInModel() {
         // Stop the server first
         Task {
             await BuiltInLLM.shared.stop()
         }
 
-        // Delete the model file
+        // Delete the currently selected model file
         let modelPath = settings.builtInModelPath
         if !modelPath.isEmpty {
             try? FileManager.default.removeItem(atPath: modelPath)
         }
 
-        // Reset settings
-        settings.builtInModelPath = ""
-        settings.builtInSetupDone = false
+        // Try to fall back to another model in the folder
+        let remaining = CaiSettings.scanBuiltInModels()
+        if let next = remaining.first {
+            let nextPath = BuiltInLLM.modelsDirectory.appendingPathComponent(next).path
+            settings.builtInModelPath = nextPath
+            Task {
+                try? await BuiltInLLM.shared.start(modelPath: nextPath)
+            }
+        } else {
+            settings.builtInModelPath = ""
+            settings.builtInSetupDone = false
+        }
 
-        // Switch to a different provider or stay on built-in (will show download prompt)
         forceCheckLLMStatus()
     }
 

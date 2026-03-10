@@ -26,6 +26,7 @@ struct ActionListWindow: View {
     @State private var availableModels: [String] = []
     @State private var showModelPicker: Bool = false
     @State private var currentModelName: String = ""
+    @State private var isSwitchingModel: Bool = false
 
     /// Corner radius matching Spotlight's rounded appearance
     private let cornerRadius: CGFloat = 20
@@ -611,28 +612,53 @@ struct ActionListWindow: View {
 
     private var modelChipView: some View {
         Menu {
-            if availableModels.isEmpty {
-                Text("Loading models…")
-            } else {
-                ForEach(availableModels, id: \.self) { model in
-                    Button(action: {
-                        settings.modelName = model
-                        currentModelName = shortenModelName(model)
-                    }) {
-                        HStack {
-                            Text(model)
-                            if model == resolvedFullModelName() {
-                                Image(systemName: "checkmark")
+            if settings.modelProvider == .builtIn {
+                // Built-in: list local .gguf files from models folder
+                let localModels = CaiSettings.scanBuiltInModels()
+                if localModels.isEmpty {
+                    Text("No models found")
+                } else {
+                    ForEach(localModels, id: \.self) { fileName in
+                        Button(action: {
+                            let newPath = BuiltInLLM.modelsDirectory
+                                .appendingPathComponent(fileName).path
+                            guard newPath != settings.builtInModelPath else { return }
+                            switchBuiltInModel(to: newPath, fileName: fileName)
+                        }) {
+                            HStack {
+                                Text(fileName)
+                                if fileName == settings.builtInModelFileName {
+                                    Image(systemName: "checkmark")
+                                }
                             }
                         }
                     }
                 }
+            } else {
+                // External provider: list models from server API
+                if availableModels.isEmpty {
+                    Text("Loading models…")
+                } else {
+                    ForEach(availableModels, id: \.self) { model in
+                        Button(action: {
+                            settings.modelName = model
+                            currentModelName = shortenModelName(model)
+                        }) {
+                            HStack {
+                                Text(model)
+                                if model == resolvedFullModelName() {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
 
-                Divider()
+                    Divider()
 
-                Button("Auto-detect") {
-                    settings.modelName = ""
-                    Task { await refreshCurrentModel() }
+                    Button("Auto-detect") {
+                        settings.modelName = ""
+                        Task { await refreshCurrentModel() }
+                    }
                 }
             }
         } label: {
@@ -646,9 +672,15 @@ struct ActionListWindow: View {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(Color.caiSurface.opacity(0.5))
                     )
-                Text(currentModelName)
-                    .font(.system(size: 10))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                if isSwitchingModel {
+                    Text("Loading…")
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                } else {
+                    Text(currentModelName)
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                }
                 Image(systemName: "chevron.down")
                     .font(.system(size: 6, weight: .semibold))
                     .foregroundColor(.caiTextSecondary.opacity(0.6))
@@ -659,8 +691,23 @@ struct ActionListWindow: View {
         .fixedSize()
         .onAppear {
             Task {
-                availableModels = await LLMService.shared.availableModels()
+                if settings.modelProvider != .builtIn {
+                    availableModels = await LLMService.shared.availableModels()
+                }
             }
+        }
+    }
+
+    private func switchBuiltInModel(to newPath: String, fileName: String) {
+        isSwitchingModel = true
+        currentModelName = shortenModelName(fileName)
+        Task {
+            settings.builtInModelPath = newPath
+            try? await BuiltInLLM.shared.restart(modelPath: newPath)
+            await MainActor.run {
+                isSwitchingModel = false
+            }
+            await refreshCurrentModel()
         }
     }
 

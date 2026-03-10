@@ -162,6 +162,17 @@ actor BuiltInLLM {
         process = nil
     }
 
+    // MARK: - Restart
+
+    /// Stops the current server and starts it with a new model.
+    func restart(modelPath: String) async throws {
+        stop()
+        // Brief pause to let the port free up
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+        restartCount = 0
+        try await start(modelPath: modelPath)
+    }
+
     // MARK: - Orphan Cleanup
 
     /// Cleans up any orphaned llama-server process from a previous crash.

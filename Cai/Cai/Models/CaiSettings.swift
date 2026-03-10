@@ -285,19 +285,44 @@ class CaiSettings: ObservableObject {
             updateLaunchAtLogin(true)
         }
 
-        // Auto-recover: if model file exists on disk but flags were lost (e.g. defaults reset),
-        // restore them so Settings UI correctly shows the model as downloaded.
-        if !builtInSetupDone || builtInModelPath.isEmpty {
-            let expectedPath = BuiltInLLM.modelsDirectory
-                .appendingPathComponent(ModelDownloader.defaultModel.fileName).path
-            if FileManager.default.fileExists(atPath: expectedPath) {
-                self.builtInModelPath = expectedPath
+        // Auto-recover: if model file doesn't exist or flags were lost,
+        // scan the models folder for any .gguf and use the first one found.
+        if !builtInSetupDone || builtInModelPath.isEmpty ||
+           !FileManager.default.fileExists(atPath: builtInModelPath) {
+            let models = CaiSettings.scanBuiltInModels()
+            if let first = models.first {
+                let recoveredPath = BuiltInLLM.modelsDirectory
+                    .appendingPathComponent(first).path
+                self.builtInModelPath = recoveredPath
                 self.builtInSetupDone = true
-                defaults.set(expectedPath, forKey: Keys.builtInModelPath)
+                defaults.set(recoveredPath, forKey: Keys.builtInModelPath)
                 defaults.set(true, forKey: Keys.builtInSetupDone)
-                print("🔄 Auto-recovered built-in model from disk: \(expectedPath)")
+                print("🔄 Auto-recovered built-in model from disk: \(first)")
             }
         }
+    }
+
+    // MARK: - Built-In Model Scanning
+
+    /// Scans the models directory for .gguf files (excluding partial downloads).
+    /// Returns filenames sorted with the default model first, then alphabetically.
+    static func scanBuiltInModels() -> [String] {
+        let modelsDir = BuiltInLLM.modelsDirectory
+        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: modelsDir.path) else {
+            return []
+        }
+        let ggufFiles = contents.filter { $0.hasSuffix(".gguf") && !$0.hasSuffix(".part") }
+        // Sort: default model first, then alphabetical
+        return ggufFiles.sorted { a, b in
+            if a == ModelDownloader.defaultModel.fileName { return true }
+            if b == ModelDownloader.defaultModel.fileName { return false }
+            return a.localizedStandardCompare(b) == .orderedAscending
+        }
+    }
+
+    /// Returns the filename component of the current built-in model path.
+    var builtInModelFileName: String {
+        (builtInModelPath as NSString).lastPathComponent
     }
 
     // MARK: - Provider Auto-Detection
@@ -345,14 +370,14 @@ class CaiSettings: ObservableObject {
                 continue
             }
         }
-        // No external provider found — use built-in if a model exists on disk
-        let expectedModelPath = BuiltInLLM.modelsDirectory
-            .appendingPathComponent(ModelDownloader.defaultModel.fileName).path
-        let modelPath = !builtInModelPath.isEmpty ? builtInModelPath : expectedModelPath
-        if FileManager.default.fileExists(atPath: modelPath) {
+        // No external provider found — use built-in if any .gguf model exists on disk
+        let models = CaiSettings.scanBuiltInModels()
+        if let firstModel = models.first {
+            let modelPath = builtInModelPath.isEmpty || !FileManager.default.fileExists(atPath: builtInModelPath)
+                ? BuiltInLLM.modelsDirectory.appendingPathComponent(firstModel).path
+                : builtInModelPath
             await MainActor.run {
-                // Recover flags if they were lost (e.g. defaults reset)
-                if !builtInSetupDone || builtInModelPath.isEmpty {
+                if !builtInSetupDone || builtInModelPath.isEmpty || builtInModelPath != modelPath {
                     self.builtInModelPath = modelPath
                     self.builtInSetupDone = true
                     print("🔄 Auto-recovered built-in model flags from disk")
