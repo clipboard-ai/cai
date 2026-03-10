@@ -131,7 +131,9 @@ In Xcode:
 
 Cai ships with a bundled AI engine ([llama.cpp](https://github.com/ggml-org/llama.cpp)). On first launch it downloads [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) (~2 GB) and runs everything locally — no external server needed.
 
-The model is stored in `~/Library/Application Support/Cai/models/`. The engine starts automatically on launch and stops when you quit Cai.
+Models are stored in `~/Library/Application Support/Cai/models/`. The engine starts automatically on launch and stops when you quit Cai.
+
+**Custom models:** Drop any `.gguf` file into the models folder and select it from the model picker in Settings or the action window footer. Cai will restart the engine with your chosen model.
 
 ### External providers
 
