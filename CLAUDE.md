@@ -43,7 +43,7 @@ Cai/Cai/
 ├── Services/
 │   ├── WindowController.swift  # Floating panel, keyboard routing, event monitors
 │   ├── ClipboardService.swift  # CGEvent Cmd+C simulation + pasteboard read
-│   ├── ContentDetector.swift   # Priority-based content type detection
+│   ├── ContentDetector.swift   # Priority-based content type detection (URL, JSON, Address, Meeting, Word, Image, Short/Long Text)
 │   ├── ActionGenerator.swift   # Generates actions per content type + appends destinations
 │   ├── LLMService.swift        # Actor-based OpenAI-compatible API client
 │   ├── BuiltInLLM.swift        # Actor — manages bundled llama-server subprocess
@@ -53,7 +53,8 @@ Cai/Cai/
 │   ├── SystemActions.swift     # URL, Maps, Calendar ICS, Search, Clipboard
 │   ├── HotKeyManager.swift     # Global hotkey registration (dynamic, reads from settings)
 │   ├── KeychainHelper.swift    # Lightweight macOS Keychain wrapper for secrets (API keys)
-│   ├── ClipboardHistory.swift  # Last 9 unique clipboard entries
+│   ├── ClipboardHistory.swift  # Last 9 unique clipboard entries (with pin support)
+│   ├── OCRService.swift        # On-device image OCR via Apple Vision framework
 │   ├── UpdateChecker.swift     # GitHub release version check (24h interval)
 │   └── PermissionsManager.swift # Accessibility permission check/polling
 └── Views/
@@ -85,6 +86,12 @@ Cai/Cai/
 Option+C → AppDelegate.handleHotKeyTrigger()
   → Capture frontmost app name (sourceApp)
   → ClipboardService.copySelectedText() [CGEvent Cmd+C simulation]
+  → openWithClipboard() priority chain:
+    1. Image file on clipboard (Finder copy) → OCRService extracts text
+    2. Text on clipboard → existing text flow
+    3. Image data on clipboard (screenshot, Preview copy) → OCRService extracts text
+    4. Image present but no text found → "No text found in image" toast
+    5. Nothing → "Clipboard is empty" toast
   → ContentDetector.detect() → ContentResult (type + entities)
   → ActionGenerator.generateActions() → [ActionItem] (includes action-list destinations)
   → WindowController.showActionWindow(text, detection, sourceApp)
@@ -261,6 +268,9 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
 - **Shell destination `{{result}}` is escaped** — `escapeForShell()` wraps text in POSIX single quotes to prevent command injection. Other destination types use their own escaping (JSON, percent-encoding, AppleScript).
 - **Webhook logging is `#if DEBUG` only** — sensitive URLs/bodies with API keys are not logged in release builds.
 - **API key only works with OpenAI-compatible providers** — uses `Authorization: Bearer` header with `/v1/chat/completions`. Works with OpenAI, OpenRouter, Together AI, Groq, Mistral AI, etc. Does NOT work with Anthropic's native API (different endpoint/format/header).
+- **Clipboard text is clamped to 50K characters** — `ClipboardHistory.maxTextLength` (50,000 chars) prevents memory bloat from huge clipboard content. Applied in `addEntry()` (history storage) and `openWithClipboard()` (action pipeline). Silent truncation — no UI indicator.
+- **OCR uses Apple Vision framework** — `OCRService` extracts text from clipboard images on-device (~50-200ms, Neural Engine). Supports all macOS image formats via `NSImage(pasteboard:)`. Background OCR in `ClipboardHistory.checkForChanges()` gives parity with text entries. Image entries use `photo` SF Symbol (macOS 13+ compatible, NOT `doc.text.image` which is macOS 14+).
+- **Image file detection checks file URLs** — `extractTextFromClipboardImageFile()` uses `NSPasteboard.readObjects(forClasses: [NSURL.self])` with `urlReadingFileURLsOnly: true` to detect Finder-copied image files. Filters by image extensions (png, jpg, jpeg, tiff, etc.). Runs before text check in priority chain.
 
 ## Dependencies
 
