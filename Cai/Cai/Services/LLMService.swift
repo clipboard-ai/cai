@@ -113,7 +113,7 @@ actor LLMService {
         switch action {
         case .summarize:
             return (
-                system: "Output only the summary.\(context) Use bullet points. No preamble, no introductions.",
+                system: "Output only the summary.\(context) Use bullet points. No preamble, no introductions. For math, use Unicode symbols.",
                 user: "Summarize this in 2-3 bullet points. Each bullet should be one sentence. Capture the key points only.\n\n\(text)"
             )
         case .translate(let lang):
@@ -128,7 +128,7 @@ actor LLMService {
             )
         case .explain:
             return (
-                system: "Explain clearly in plain language.\(context) Under 100 words. Start directly \u{2014} no preamble.",
+                system: "Explain clearly in plain language.\(context) Under 100 words. Start directly \u{2014} no preamble. For math, use Unicode symbols.",
                 user: "Explain this:\n\n\(text)"
             )
         case .reply:
@@ -143,7 +143,7 @@ actor LLMService {
             )
         case .custom(let instruction):
             return (
-                system: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" \u{2014} the result is copied directly to clipboard.",
+                system: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" \u{2014} the result is copied directly to clipboard. For math, use Unicode symbols.",
                 user: "\(instruction)\n\n\(text)"
             )
         }
