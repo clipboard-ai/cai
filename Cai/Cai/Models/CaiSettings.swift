@@ -1,6 +1,9 @@
 import Foundation
 import HotKey
 import ServiceManagement
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 /// Persistent user settings stored in UserDefaults.
 class CaiSettings: ObservableObject {
@@ -34,6 +37,7 @@ class CaiSettings: ObservableObject {
 
     enum ModelProvider: String, CaseIterable, Identifiable {
         case builtIn = "Built-in"
+        case apple = "Apple Intelligence"
         case lmstudio = "LM Studio"
         case ollama = "Ollama"
         case custom = "Custom"
@@ -44,6 +48,7 @@ class CaiSettings: ObservableObject {
         var defaultURL: String {
             switch self {
             case .builtIn: return "http://127.0.0.1:8690"
+            case .apple: return ""  // No HTTP endpoint — uses FoundationModels framework
             case .lmstudio: return "http://127.0.0.1:1234"
             case .ollama: return "http://127.0.0.1:11434"
             case .custom: return ""
@@ -132,6 +137,8 @@ class CaiSettings: ObservableObject {
         switch modelProvider {
         case .builtIn:
             return "http://127.0.0.1:\(builtInPort)"
+        case .apple:
+            return ""  // Uses FoundationModels framework, not HTTP
         case .lmstudio, .ollama:
             return modelProvider.defaultURL
         case .custom:
@@ -361,6 +368,23 @@ class CaiSettings: ObservableObject {
     /// Probes known provider URLs and selects the first one that responds.
     /// Only call this when `hasExplicitProvider` is false (first launch).
     func autoDetectProvider() async {
+        // Apple Intelligence — highest priority, zero setup.
+        // Only auto-select on subsequent launches (builtInSetupDone already true).
+        // On first launch, the ModelSetupView handles the Apple Intelligence recommendation
+        // so the user sees the onboarding and can choose.
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            let setupDone = await MainActor.run { self.builtInSetupDone }
+            if setupDone && SystemLanguageModel.default.availability == .available {
+                await MainActor.run {
+                    self.modelProvider = .apple
+                    print("Auto-detected Apple Intelligence")
+                }
+                return
+            }
+        }
+        #endif
+
         for probe in Self.providerProbes {
             guard let url = URL(string: "\(probe.url)/v1/models") else { continue }
 

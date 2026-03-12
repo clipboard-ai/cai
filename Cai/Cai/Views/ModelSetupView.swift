@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 /// First-launch setup view for downloading and configuring the built-in LLM.
 /// Shown when no external LLM provider (LM Studio, Ollama) is detected.
@@ -7,6 +10,7 @@ struct ModelSetupView: View {
     @ObservedObject private var downloader = ModelDownloader.shared
     @State private var phase: SetupPhase = .welcome
     @State private var errorMessage: String?
+    @State private var appleIntelligenceAvailable: Bool = false
 
     /// Called when setup is complete or skipped
     var onComplete: () -> Void
@@ -46,9 +50,14 @@ struct ModelSetupView: View {
         .frame(width: 360, height: 320)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            // Check Apple Intelligence availability
+            appleIntelligenceAvailable = Self.isAppleIntelligenceAvailable()
+
             // If setup was already completed (download finished in background),
             // show the ready state.
             if settings.builtInSetupDone && !settings.builtInModelPath.isEmpty {
+                phase = .ready
+            } else if settings.builtInSetupDone && settings.modelProvider == .apple {
                 phase = .ready
             } else if downloader.isDownloading {
                 // Download is still in progress (window was closed and reopened)
@@ -59,13 +68,79 @@ struct ModelSetupView: View {
 
     // MARK: - Welcome
 
+    @ViewBuilder
     private var welcomeContent: some View {
+        if appleIntelligenceAvailable {
+            welcomeAppleIntelligence
+        } else {
+            welcomeMinistral
+        }
+    }
+
+    // MARK: - Welcome (Apple Intelligence)
+
+    private var welcomeAppleIntelligence: some View {
         VStack(spacing: 16) {
             Text("Cai needs a local AI model")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(.caiTextPrimary)
 
-            Text("Smart actions like Summarize, Explain, and Translate are powered by a local AI that runs entirely on your Mac.")
+            Text("AI-powered actions on your clipboard. Runs locally, never leaves your Mac.")
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            // Apple Intelligence button
+            Button(action: { selectAppleIntelligence() }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "apple.intelligence")
+                        .font(.system(size: 16))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use Apple Intelligence")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Free \u{2022} No download \u{2022} Recommended")
+                            .font(.system(size: 10))
+                            .opacity(0.7)
+                    }
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.caiPrimary)
+                .cornerRadius(8)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 40)
+
+            // Download instead
+            Button("Download built-in model instead") {
+                appleIntelligenceAvailable = false
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(.caiPrimary)
+            .buttonStyle(.plain)
+
+            // Skip option
+            Button("Skip \u{2014} I have my own LLM setup") {
+                settings.builtInSetupDone = true
+                onComplete()
+            }
+            .font(.system(size: 11))
+            .foregroundColor(.caiTextSecondary)
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Welcome (Ministral Download)
+
+    private var welcomeMinistral: some View {
+        VStack(spacing: 16) {
+            Text("Cai needs a local AI model")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.caiTextPrimary)
+
+            Text("AI-powered actions on your clipboard. Runs locally, never leaves your Mac.")
                 .font(.system(size: 12))
                 .foregroundColor(.caiTextSecondary)
                 .multilineTextAlignment(.center)
@@ -94,7 +169,7 @@ struct ModelSetupView: View {
             .padding(.horizontal, 40)
 
             // Skip option
-            Button("Skip — I have my own LLM setup") {
+            Button("Skip \u{2014} I have my own LLM setup") {
                 settings.builtInSetupDone = true
                 onComplete()
             }
@@ -232,6 +307,21 @@ struct ModelSetupView: View {
     }
 
     // MARK: - Actions
+
+    private func selectAppleIntelligence() {
+        settings.modelProvider = .apple
+        settings.builtInSetupDone = true
+        phase = .ready
+    }
+
+    private static func isAppleIntelligenceAvailable() -> Bool {
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            return SystemLanguageModel.default.availability == .available
+        }
+        #endif
+        return false
+    }
 
     private func startDownload() {
         phase = .downloading

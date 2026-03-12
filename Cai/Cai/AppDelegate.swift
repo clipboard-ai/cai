@@ -1,5 +1,8 @@
 import Cocoa
 import SwiftUI
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
@@ -397,6 +400,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let provider = await MainActor.run { settings.modelProvider }
             let modelPath = await MainActor.run { settings.builtInModelPath }
 
+            // Apple Intelligence — no server to start, just verify it's still available
+            if provider == .apple {
+                let status = await LLMService.shared.checkStatus()
+                if status.available {
+                    print("Apple Intelligence ready — no setup needed")
+                    return
+                }
+                // Apple Intelligence was selected but is no longer available — fall through to auto-detect
+            }
+
             // Start built-in server if that's the configured provider
             if provider == .builtIn && !modelPath.isEmpty &&
                FileManager.default.fileExists(atPath: modelPath) {
@@ -413,8 +426,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if !status.available {
                 await settings.autoDetectProvider()
 
-                // If auto-detect landed on built-in, start the server now
+                // If auto-detect landed on Apple Intelligence (only happens when setupDone),
+                // we're done — no server needed
                 let newProvider = await MainActor.run { settings.modelProvider }
+                if newProvider == .apple {
+                    print("Auto-detected Apple Intelligence — no setup needed")
+                    return
+                }
+
+                // If auto-detect landed on built-in, start the server now
                 let newModelPath = await MainActor.run { settings.builtInModelPath }
                 if newProvider == .builtIn && !newModelPath.isEmpty &&
                    FileManager.default.fileExists(atPath: newModelPath) {

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 // MARK: - Chat Message
 
@@ -39,6 +42,12 @@ actor LLMService {
 
     /// Checks if the LLM server is reachable and has a loaded model.
     func checkStatus() async -> Status {
+        // Apple Intelligence — check on-device model availability
+        let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+        if provider == .apple {
+            return checkAppleFMStatus()
+        }
+
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
         guard !baseURL.isEmpty,
               baseURL.hasPrefix("http"),
@@ -75,6 +84,11 @@ actor LLMService {
 
     /// Fetches the list of all available model names from the server.
     func availableModels() async -> [String] {
+        let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+        if provider == .apple {
+            return ["Apple Intelligence"]
+        }
+
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
         guard !baseURL.isEmpty,
               baseURL.hasPrefix("http"),
@@ -154,6 +168,12 @@ actor LLMService {
     /// Sends a pre-built messages array to the chat completions endpoint.
     /// Used by follow-up conversations where the caller manages message history.
     func generateWithMessages(_ messages: [ChatMessage]) async throws -> String {
+        // Apple Intelligence — route to on-device FoundationModels
+        let provider = await MainActor.run { CaiSettings.shared.modelProvider }
+        if provider == .apple {
+            return try await generateWithAppleFM(messages)
+        }
+
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
         guard !baseURL.isEmpty,
               baseURL.hasPrefix("http"),
@@ -282,6 +302,60 @@ actor LLMService {
         let p = Self.prompts(for: .custom(instruction), text: text, appContext: appContext)
         return try await generate(systemPrompt: p.system, userPrompt: p.user)
     }
+    // MARK: - Apple Intelligence (FoundationModels)
+
+    /// Checks Apple Intelligence on-device model availability.
+    private func checkAppleFMStatus() -> Status {
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            let availability = SystemLanguageModel.default.availability
+            switch availability {
+            case .available:
+                return Status(available: true, modelName: "Apple Intelligence", error: nil)
+            default:
+                return Status(available: false, modelName: nil, error: "Apple Intelligence not available")
+            }
+        }
+        #endif
+        return Status(available: false, modelName: nil, error: "Requires macOS 26+")
+    }
+
+    /// Generates a response using Apple's on-device Foundation Models.
+    /// Creates a fresh session per request. For follow-ups, replays the conversation
+    /// so the session builds up context via its built-in transcript.
+    private func generateWithAppleFM(_ messages: [ChatMessage]) async throws -> String {
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            let model = SystemLanguageModel.default
+            guard model.availability == .available else {
+                throw LLMError.appleIntelligenceUnavailable
+            }
+
+            // Extract system prompt (instructions) from messages
+            let systemPrompt = messages.first(where: { $0.role == "system" })?.content ?? ""
+            let session = LanguageModelSession(instructions: systemPrompt)
+
+            // Collect user messages in order
+            let userMessages = messages.filter { $0.role == "user" }
+            guard !userMessages.isEmpty else {
+                throw LLMError.emptyResponse
+            }
+
+            // For follow-ups, replay earlier user messages to build session context.
+            // Each respond() call adds to the session transcript automatically.
+            if userMessages.count > 1 {
+                for userMsg in userMessages.dropLast() {
+                    _ = try await session.respond(to: userMsg.content)
+                }
+            }
+
+            // Send the final (or only) user message
+            let response = try await session.respond(to: userMessages.last!.content)
+            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        #endif
+        throw LLMError.appleIntelligenceUnavailable
+    }
 }
 
 // MARK: - API Types
@@ -314,6 +388,7 @@ enum LLMError: LocalizedError {
     case emptyResponse
     case connectionFailed
     case timeout
+    case appleIntelligenceUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -329,6 +404,8 @@ enum LLMError: LocalizedError {
             return "Could not connect to LLM server. Is it running?"
         case .timeout:
             return "Request timed out. Is your LLM server running?"
+        case .appleIntelligenceUnavailable:
+            return "Apple Intelligence requires macOS 26+ with Apple Intelligence enabled."
         }
     }
 }

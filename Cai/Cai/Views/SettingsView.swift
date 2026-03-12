@@ -61,6 +61,10 @@ struct SettingsView: View {
 
                                 if settings.modelProvider == .builtIn {
                                     builtInModelSection
+                                } else if settings.modelProvider == .apple {
+                                    Text("On-device model via Apple Intelligence — no setup needed")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.caiTextSecondary)
                                 } else {
                                     if settings.modelProvider == .custom {
                                         TextField("http://127.0.0.1:8080", text: $settings.customModelURL)
@@ -114,7 +118,7 @@ struct SettingsView: View {
                                     startBuiltInIfNeeded()
                                 }
                                 forceCheckLLMStatus()
-                                if newProvider != .builtIn {
+                                if newProvider != .builtIn && newProvider != .apple {
                                     fetchAvailableModels()
                                 }
                             }
