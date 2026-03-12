@@ -133,12 +133,12 @@ actor LLMService {
             )
         case .reply:
             return (
-                system: "Write a reply to the message below.\(context) Match the tone, language and formality of the original. Be concise. Output only the reply \u{2014} no preamble and no bold letters.",
+                system: "Write a reply to the message below.\(context) Match the tone, language and formality of the original. Be concise. Output only the reply \u{2014} no preamble. Do not use any markdown formatting (no **, no *, no #, no `).",
                 user: text
             )
         case .proofread:
             return (
-                system: "You are a proofreader.\(context) Fix grammar, spelling, and punctuation errors. Keep the original meaning, tone, and style. Output only the corrected text \u{2014} no explanations, no comments.",
+                system: "You are a proofreader.\(context) Fix grammar, spelling, and punctuation errors. Keep the original meaning, tone, and style. Output only the corrected text \u{2014} no explanations, no comments. Do not use any markdown formatting (no **, no *, no #, no `).",
                 user: text
             )
         case .custom(let instruction):
