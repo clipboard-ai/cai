@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// About window content — shows app name, version, tagline, and GitHub link.
+/// About window content — shows app icon, name, version, description, and links.
 struct AboutView: View {
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -11,56 +11,76 @@ struct AboutView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Spacer().frame(height: 4)
+        VStack(spacing: 0) {
+            Spacer().frame(height: 20)
 
             // App icon
             Image("CaiLogo")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-            // App name
-            VStack(spacing: 4) {
-                Text("Cai")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(.caiTextPrimary)
+            Spacer().frame(height: 14)
 
-                Text("Version \(appVersion) (\(buildNumber))")
-                    .font(.system(size: 12))
-                    .foregroundColor(.caiTextSecondary)
-            }
+            // App name + version
+            Text("Cai")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.caiTextPrimary)
+
+            Text("Version \(appVersion) (\(buildNumber))")
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextSecondary.opacity(0.6))
+                .padding(.top, 2)
+
+            Spacer().frame(height: 16)
 
             // Tagline
-            Text("Smart clipboard actions\npowered by local AI")
-                .font(.system(size: 13))
+            Text("The private clipboard AI")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.caiTextPrimary)
+
+            Spacer().frame(height: 8)
+
+            // Description
+            Text("Select text, press \u{2325}C, and run smart actions\npowered by local AI. Free, open source,\nand built with privacy in mind.")
+                .font(.system(size: 12))
                 .foregroundColor(.caiTextSecondary)
                 .multilineTextAlignment(.center)
+                .lineSpacing(2)
 
-            // GitHub link
-            Button(action: {
-                if let url = URL(string: "https://github.com/soyasis/cai") {
-                    NSWorkspace.shared.open(url)
-                }
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "link")
-                        .font(.system(size: 11))
-                    Text("GitHub")
-                        .font(.system(size: 12))
-                }
-                .foregroundColor(.caiPrimary)
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            Spacer().frame(height: 18)
+
+            // Links
+            HStack(spacing: 16) {
+                linkButton(title: "Website", icon: "globe", url: "https://getcai.app")
+                linkButton(title: "GitHub", icon: "chevron.left.forwardslash.chevron.right", url: "https://github.com/soyasis/cai")
             }
 
-            Spacer().frame(height: 4)
+            Spacer().frame(height: 20)
         }
-        .frame(width: 260, height: 220)
+        .frame(width: 280)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("About Cai")
+    }
+
+    private func linkButton(title: String, icon: String, url: String) -> some View {
+        Button(action: {
+            if let url = URL(string: url) {
+                NSWorkspace.shared.open(url)
+            }
+        }) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                Text(title)
+                    .font(.system(size: 12))
+            }
+            .foregroundColor(.caiPrimary)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 }

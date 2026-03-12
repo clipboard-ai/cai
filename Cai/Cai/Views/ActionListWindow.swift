@@ -8,6 +8,7 @@ struct ActionListWindow: View {
     let sourceApp: String?
     let onDismiss: () -> Void
     let onExecute: (ActionItem) -> Void
+    var showSettingsOnAppear: Bool = false
 
     @State private var showResult: Bool = false
     @State private var resultTitle: String = ""
@@ -246,7 +247,28 @@ struct ActionListWindow: View {
         .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
         .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
         .onChange(of: showFollowUpInput) { _ in updateFilterInputFlag() }
-        .onAppear { updateFilterInputFlag() }
+        .onReceive(NotificationCenter.default.publisher(for: .caiShowSettings)) { _ in
+            if showSettings {
+                // Already showing settings — toggle off (dismiss)
+                onDismiss()
+            } else {
+                // Navigate to settings from current screen
+                showResult = false
+                showHistory = false
+                showCustomPrompt = false
+                showShortcutsManagement = false
+                showDestinationsManagement = false
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showSettings = true
+                }
+            }
+        }
+        .onAppear {
+            updateFilterInputFlag()
+            if showSettingsOnAppear {
+                showSettings = true
+            }
+        }
     }
 
     /// Accept type-to-filter input on both the action list and history screens.
@@ -600,6 +622,7 @@ struct ActionListWindow: View {
                     NotificationCenter.default.post(name: .caiShowModelSetup, object: nil)
                 }
             )
+            Spacer(minLength: 0)
             Divider()
                 .background(Color.caiDivider)
             HStack(spacing: 16) {
@@ -627,7 +650,7 @@ struct ActionListWindow: View {
 
             Text("type to filter")
                 .font(.system(size: 10))
-                .foregroundColor(.caiTextSecondary.opacity(0.4))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -786,14 +809,8 @@ struct ActionListWindow: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "cpu")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.caiSurface.opacity(0.5))
-                    )
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundColor(.caiTextSecondary.opacity(0.5))
                 if isSwitchingModel {
                     Text("Loading…")
                         .font(.system(size: 10))

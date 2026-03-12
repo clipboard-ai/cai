@@ -95,6 +95,8 @@ struct ShortcutsManagementView: View {
                 .padding(.horizontal, 4)
             }
 
+            Spacer(minLength: 0)
+
             Divider()
                 .background(Color.caiDivider)
 

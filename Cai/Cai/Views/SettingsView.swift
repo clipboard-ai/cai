@@ -1,14 +1,11 @@
 import SwiftUI
 
-/// Settings panel — used both inline in the action window (via Cai logo)
-/// and in the menu bar popover. Adapts to parent's size constraints.
+/// Settings panel — shown inline in the action window (via gear icon or menu bar click).
 struct SettingsView: View {
     @ObservedObject var settings = CaiSettings.shared
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var updateChecker = UpdateChecker.shared
-    /// Callback to navigate to shortcuts management. When rendered inside
-    /// ActionListWindow this pushes the shortcuts screen; when rendered in the
-    /// menu bar popover this opens a standalone window.
+    /// Callback to navigate to shortcuts management (pushes inline screen).
     var onShowShortcuts: (() -> Void)? = nil
     var onShowDestinations: (() -> Void)? = nil
     var onShowModelSetup: (() -> Void)? = nil
@@ -47,244 +44,260 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Translation Language
-                    settingsSection(title: "Translation Language", icon: "globe") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Picker("", selection: $settings.translationLanguage) {
-                                ForEach(CaiSettings.commonLanguages, id: \.self) { lang in
-                                    Text(lang).tag(lang)
+                VStack(alignment: .leading, spacing: 24) {
+
+                    // MARK: AI Group
+                    settingsGroup(title: "AI") {
+                        settingsSection(title: "Model Provider", icon: "cpu") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Picker("", selection: $settings.modelProvider) {
+                                    ForEach(CaiSettings.ModelProvider.allCases) { provider in
+                                        Text(provider.rawValue).tag(provider)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .accessibilityLabel("LLM model provider")
+
+                                if settings.modelProvider == .builtIn {
+                                    builtInModelSection
+                                } else {
+                                    if settings.modelProvider == .custom {
+                                        TextField("http://127.0.0.1:8080", text: $settings.customModelURL)
+                                            .textFieldStyle(.roundedBorder)
+                                            .font(.system(size: 12, design: .monospaced))
+                                            .accessibilityLabel("Custom model URL")
+
+                                        Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.caiTextSecondary)
+                                    }
+
+                                    // Model picker
+                                    HStack(spacing: 8) {
+                                        Picker("", selection: $settings.modelName) {
+                                            Text("Auto-detect").tag("")
+                                            ForEach(availableModels, id: \.self) { model in
+                                                Text(model).tag(model)
+                                            }
+                                        }
+                                        .labelsHidden()
+                                        .pickerStyle(.menu)
+                                        .accessibilityLabel("Model selection")
+
+                                        Button(action: { fetchAvailableModels() }) {
+                                            Image(systemName: "arrow.clockwise")
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundColor(.caiTextSecondary)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("Refresh model list")
+                                    }
+
+                                    Text("Select a model or leave on Auto-detect")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+
+                                    // API Key (optional, for cloud or auth-enabled servers)
+                                    SecureField("Optional", text: $settings.apiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .accessibilityLabel("API key for authenticated LLM providers")
+
+                                    Text("API key — leave blank for local servers without auth")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
                                 }
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .accessibilityLabel("Translation language")
+                            .onChange(of: settings.modelProvider) { newProvider in
+                                if newProvider == .builtIn {
+                                    startBuiltInIfNeeded()
+                                }
+                                forceCheckLLMStatus()
+                                if newProvider != .builtIn {
+                                    fetchAvailableModels()
+                                }
+                            }
+                            .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus(); fetchAvailableModels() }
+                            .onChange(of: settings.modelName) { _ in forceCheckLLMStatus() }
+                        }
 
-                            Text("Default language for the Translate action")
-                                .font(.system(size: 11))
-                                .foregroundColor(.caiTextSecondary)
+                        settingsDivider
+
+                        settingsSection(title: "About You", icon: "person.circle") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                TextField(
+                                    "e.g. My name is Alex. I'm a product designer based in Berlin. I prefer casual, concise replies. I speak English and German.",
+                                    text: $settings.aboutYou,
+                                    axis: .vertical
+                                )
+                                .lineLimit(2...5)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12))
+                                .accessibilityLabel("About you — personal context for AI responses")
+                                .onChange(of: settings.aboutYou) { newValue in
+                                    if newValue.count > CaiSettings.aboutYouMaxLength {
+                                        settings.aboutYou = String(newValue.prefix(CaiSettings.aboutYouMaxLength))
+                                    }
+                                }
+
+                                HStack {
+                                    Text("Personal context added to every AI response")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                    Spacer()
+                                    Text("\(settings.aboutYou.count) / \(CaiSettings.aboutYouMaxLength)")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(
+                                            settings.aboutYou.count > CaiSettings.aboutYouMaxLength - 50
+                                                ? .orange
+                                                : .caiTextSecondary.opacity(0.5)
+                                        )
+                                }
+                            }
                         }
                     }
 
-                    // Search URL
-                    settingsSection(title: "Search URL", icon: "magnifyingglass") {
-                        TextField(CaiSettings.defaultSearchURL, text: $settings.searchURL)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 12, design: .monospaced))
-                            .accessibilityLabel("Search engine base URL")
-                            .onChange(of: settings.searchURL) { newValue in
-                                if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    settings.searchURL = CaiSettings.defaultSearchURL
+                    // MARK: Actions Group
+                    settingsGroup(title: "Actions") {
+                        settingsSection(title: "Translation Language", icon: "globe") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Picker("", selection: $settings.translationLanguage) {
+                                    ForEach(CaiSettings.commonLanguages, id: \.self) { lang in
+                                        Text(lang).tag(lang)
+                                    }
                                 }
-                            }
-                    }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .accessibilityLabel("Translation language")
 
-                    // Maps Provider
-                    settingsSection(title: "Maps", icon: "map") {
-                        Picker("", selection: $settings.mapsProvider) {
-                            ForEach(CaiSettings.MapsProvider.allCases) { provider in
-                                Text(provider.rawValue).tag(provider)
+                                Text("Default language for the Translate action")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
                             }
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .accessibilityLabel("Maps provider")
-                    }
 
-                    // Model Provider
-                    settingsSection(title: "Model Provider", icon: "cpu") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Picker("", selection: $settings.modelProvider) {
-                                ForEach(CaiSettings.ModelProvider.allCases) { provider in
+                        settingsDivider
+
+                        settingsSection(title: "Search URL", icon: "magnifyingglass") {
+                            TextField(CaiSettings.defaultSearchURL, text: $settings.searchURL)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12, design: .monospaced))
+                                .accessibilityLabel("Search engine base URL")
+                                .onChange(of: settings.searchURL) { newValue in
+                                    if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        settings.searchURL = CaiSettings.defaultSearchURL
+                                    }
+                                }
+                        }
+
+                        settingsDivider
+
+                        settingsSection(title: "Maps", icon: "map") {
+                            Picker("", selection: $settings.mapsProvider) {
+                                ForEach(CaiSettings.MapsProvider.allCases) { provider in
                                     Text(provider.rawValue).tag(provider)
                                 }
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
-                            .accessibilityLabel("LLM model provider")
+                            .accessibilityLabel("Maps provider")
+                        }
 
-                            if settings.modelProvider == .builtIn {
-                                builtInModelSection
-                            } else {
-                                if settings.modelProvider == .custom {
-                                    TextField("http://127.0.0.1:8080", text: $settings.customModelURL)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .accessibilityLabel("Custom model URL")
+                        settingsDivider
 
-                                    Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.caiTextSecondary)
-                                }
-
-                                // Model picker
-                                HStack(spacing: 8) {
-                                    Picker("", selection: $settings.modelName) {
-                                        Text("Auto-detect").tag("")
-                                        ForEach(availableModels, id: \.self) { model in
-                                            Text(model).tag(model)
-                                        }
-                                    }
-                                    .labelsHidden()
-                                    .pickerStyle(.menu)
-                                    .accessibilityLabel("Model selection")
-
-                                    Button(action: { fetchAvailableModels() }) {
-                                        Image(systemName: "arrow.clockwise")
-                                            .font(.system(size: 10, weight: .medium))
-                                            .foregroundColor(.caiTextSecondary)
+                        settingsSection(title: "Custom Shortcuts", icon: "bolt.circle.fill") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let onShowShortcuts = onShowShortcuts {
+                                    Button(action: onShowShortcuts) {
+                                        shortcutsRow
                                     }
                                     .buttonStyle(.plain)
-                                    .help("Refresh model list")
-                                }
-
-                                Text("Select a model or leave on Auto-detect")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-
-                                // API Key (optional, for cloud or auth-enabled servers)
-                                SecureField("Optional", text: $settings.apiKey)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .accessibilityLabel("API key for authenticated LLM providers")
-
-                                Text("API key — leave blank for local servers without auth")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                            }
-                        }
-                        .onChange(of: settings.modelProvider) { newProvider in
-                            if newProvider == .builtIn {
-                                startBuiltInIfNeeded()
-                            }
-                            forceCheckLLMStatus()
-                            if newProvider != .builtIn {
-                                fetchAvailableModels()
-                            }
-                        }
-                        .onChange(of: settings.customModelURL) { _ in forceCheckLLMStatus(); fetchAvailableModels() }
-                        .onChange(of: settings.modelName) { _ in forceCheckLLMStatus() }
-                    }
-
-                    // Custom Shortcuts
-                    settingsSection(title: "Custom Shortcuts", icon: "bolt.circle.fill") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if let onShowShortcuts = onShowShortcuts {
-                                Button(action: onShowShortcuts) {
+                                } else {
                                     shortcutsRow
                                 }
-                                .buttonStyle(.plain)
-                            } else {
-                                shortcutsRow
+                                Text("Type to search shortcuts when Cai is open")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
                             }
-                            Text("Type to search shortcuts when Cai is open")
-                                .font(.system(size: 11))
-                                .foregroundColor(.caiTextSecondary)
                         }
-                    }
 
-                    // Output Destinations
-                    settingsSection(title: "Output Destinations", icon: "arrow.up.right.square") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if let onShowDestinations = onShowDestinations {
-                                Button(action: onShowDestinations) {
+                        settingsDivider
+
+                        settingsSection(title: "Output Destinations", icon: "arrow.up.right.square") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let onShowDestinations = onShowDestinations {
+                                    Button(action: onShowDestinations) {
+                                        destinationsRow
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
                                     destinationsRow
                                 }
-                                .buttonStyle(.plain)
-                            } else {
-                                destinationsRow
+                                Text("Send LLM results to Mail, Notes, Slack, and more")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
                             }
-                            Text("Send LLM results to Mail, Notes, Slack, and more")
-                                .font(.system(size: 11))
-                                .foregroundColor(.caiTextSecondary)
                         }
                     }
 
-                    // Clipboard History
-                    settingsSection(title: "Clipboard History", icon: "clock.arrow.circlepath") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Picker("", selection: $settings.clipboardHistorySize) {
-                                ForEach(CaiSettings.historySizePresets, id: \.self) { size in
-                                    Text("\(size) items").tag(size)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .accessibilityLabel("Clipboard history size")
-
-                            Text("Maximum number of items to remember")
-                                .font(.system(size: 11))
-                                .foregroundColor(.caiTextSecondary)
-                        }
-                    }
-
-                    // About You
-                    settingsSection(title: "About You", icon: "person.circle") {
-                        VStack(alignment: .leading, spacing: 6) {
-                            TextField(
-                                "e.g. My name is Alex. I'm a product designer based in Berlin. I prefer casual, concise replies. I speak English and German.",
-                                text: $settings.aboutYou,
-                                axis: .vertical
-                            )
-                            .lineLimit(2...5)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 12))
-                            .accessibilityLabel("About you — personal context for AI responses")
-                            .onChange(of: settings.aboutYou) { newValue in
-                                if newValue.count > CaiSettings.aboutYouMaxLength {
-                                    settings.aboutYou = String(newValue.prefix(CaiSettings.aboutYouMaxLength))
-                                }
-                            }
-
+                    // MARK: General Group
+                    settingsGroup(title: "General") {
+                        settingsSection(title: "Hotkey & Startup", icon: "gearshape") {
                             HStack {
-                                Text("Personal context added to every AI response")
+                                Text("Hotkey")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.caiTextPrimary)
+                                Spacer()
+                                ShortcutRecorderView()
+                                    .frame(width: 120, height: 24)
+                            }
+
+                            Toggle("Launch at Login", isOn: $settings.launchAtLogin)
+                                .toggleStyle(.switch)
+                                .font(.system(size: 12))
+                                .foregroundColor(.caiTextPrimary)
+                                .accessibilityLabel("Launch Cai at login")
+                        }
+
+                        settingsDivider
+
+                        settingsSection(title: "Clipboard History", icon: "clock.arrow.circlepath") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Picker("", selection: $settings.clipboardHistorySize) {
+                                    ForEach(CaiSettings.historySizePresets, id: \.self) { size in
+                                        Text("\(size) items").tag(size)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .accessibilityLabel("Clipboard history size")
+
+                                Text("Maximum number of items to remember")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
+                            }
+                        }
+
+                        settingsDivider
+
+                        settingsSection(title: "Privacy", icon: "hand.raised") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Toggle("Send crash reports", isOn: $settings.crashReportingEnabled)
+                                    .toggleStyle(.switch)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.caiTextPrimary)
+                                    .accessibilityLabel("Send crash reports to help improve Cai")
+
+                                Text("When enabled, anonymous crash data is sent to help fix bugs. No clipboard content, personal data, or usage patterns are collected.")
                                     .font(.system(size: 10))
                                     .foregroundColor(.caiTextSecondary.opacity(0.6))
-                                Spacer()
-                                Text("\(settings.aboutYou.count) / \(CaiSettings.aboutYouMaxLength)")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(
-                                        settings.aboutYou.count > CaiSettings.aboutYouMaxLength - 50
-                                            ? .orange
-                                            : .caiTextSecondary.opacity(0.4)
-                                    )
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
 
-                    // Privacy
-                    settingsSection(title: "Privacy", icon: "hand.raised") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Toggle("Send crash reports", isOn: $settings.crashReportingEnabled)
-                                .font(.system(size: 12))
-                                .foregroundColor(.caiTextPrimary)
-                                .accessibilityLabel("Send crash reports to help improve Cai")
-
-                            Text("When enabled, anonymous crash data is sent to help fix bugs. No clipboard content, personal data, or usage patterns are collected.")
-                                .font(.system(size: 10))
-                                .foregroundColor(.caiTextSecondary.opacity(0.6))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-
-                    // General
-                    settingsSection(title: "General", icon: "gearshape") {
-                        HStack {
-                            Text("Hotkey")
-                                .font(.system(size: 12))
-                                .foregroundColor(.caiTextPrimary)
-                            Spacer()
-                            ShortcutRecorderView()
-                                .frame(width: 120, height: 24)
-                        }
-
-                        Toggle("Launch at Login", isOn: $settings.launchAtLogin)
-                            .font(.system(size: 12))
-                            .foregroundColor(.caiTextPrimary)
-                            .accessibilityLabel("Launch Cai at login")
-                    }
-
-                    // Feedback
+                    // Feedback (outside groups)
                     Button(action: {
                         if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
                             NSWorkspace.shared.open(url)
@@ -320,34 +333,28 @@ struct SettingsView: View {
         if !localModels.isEmpty {
             // Model(s) available — show picker
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Picker("", selection: Binding(
-                        get: { settings.builtInModelFileName },
-                        set: { newFileName in
-                            let newPath = BuiltInLLM.modelsDirectory
-                                .appendingPathComponent(newFileName).path
-                            guard newPath != settings.builtInModelPath else { return }
-                            switchBuiltInModel(to: newPath)
-                        }
-                    )) {
-                        ForEach(localModels, id: \.self) { fileName in
-                            Text(fileName).tag(fileName)
-                        }
+                Picker("", selection: Binding(
+                    get: { settings.builtInModelFileName },
+                    set: { newFileName in
+                        let newPath = BuiltInLLM.modelsDirectory
+                            .appendingPathComponent(newFileName).path
+                        guard newPath != settings.builtInModelPath else { return }
+                        switchBuiltInModel(to: newPath)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .accessibilityLabel("Built-in model selection")
-
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary.opacity(0.5))
-                        .help("Drop .gguf files into ~/Library/Application Support/Cai/models/")
+                )) {
+                    ForEach(localModels, id: \.self) { fileName in
+                        Text(fileName).tag(fileName)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityLabel("Built-in model selection")
+
+                Text("Runs on your Mac · drop .gguf files into ~/Library/Application Support/Cai/models/")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
 
                 HStack(spacing: 12) {
-                    Text("Runs entirely on your Mac")
-                        .font(.system(size: 10))
-                        .foregroundColor(.caiTextSecondary.opacity(0.6))
                     Spacer()
                     Button("Delete Model") {
                         deleteBuiltInModel()
@@ -575,8 +582,36 @@ struct SettingsView: View {
               : "Accessibility permission required — click to open Settings")
     }
 
-    // MARK: - Settings Section
+    // MARK: - Settings Layout Helpers
 
+    /// Groups multiple settings sections in a rounded-rect container (macOS System Settings style).
+    private func settingsGroup<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+                .padding(.leading, 4)
+
+            VStack(alignment: .leading, spacing: 0) {
+                content()
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.caiSurface.opacity(0.3))
+            )
+        }
+    }
+
+    /// Lightweight divider between sections within a group.
+    private var settingsDivider: some View {
+        Divider().opacity(0.3).padding(.vertical, 8)
+    }
+
+    /// Individual settings section with icon + title header.
     private func settingsSection<Content: View>(
         title: String,
         icon: String,

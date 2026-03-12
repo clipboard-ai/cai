@@ -111,7 +111,7 @@ struct DestinationsManagementView: View {
                 }
                 .padding(.vertical, 8)
             }
-            .frame(maxHeight: 340)
+            Spacer(minLength: 0)
 
             Divider()
                 .background(Color.caiDivider)

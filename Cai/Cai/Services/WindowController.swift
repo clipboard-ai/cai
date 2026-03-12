@@ -57,11 +57,8 @@ class WindowController: NSObject, ObservableObject {
     private static let dividerHeight: CGFloat = 1
     private static let rowHeight: CGFloat = 46  // 7 + ~30 content + 7 padding + 2 spacing
     private static let listVerticalPadding: CGFloat = 16  // 6 top + 6 bottom + extra buffer
-    private static let maxVisibleRows: CGFloat = 9  // matches ⌘1–9; scroll for the rest
+    private static let maxVisibleRows: CGFloat = 6  // compact like Spotlight/Raycast; scroll for the rest
     private static let cornerRadius: CGFloat = 20
-
-    /// Minimum visible rows — keeps the window from looking cramped when there are few actions.
-    private static let minVisibleRows: CGFloat = 4
 
     override init() {
         super.init()
@@ -83,17 +80,34 @@ class WindowController: NSObject, ObservableObject {
         }
     }
 
-    /// Calculates dynamic window height based on action count, clamped between 4 and 9 rows.
-    private func calculateWindowHeight(actionCount: Int) -> CGFloat {
-        let effectiveRows = min(max(CGFloat(actionCount), Self.minVisibleRows), Self.maxVisibleRows)
-        let contentHeight = effectiveRows * Self.rowHeight + Self.listVerticalPadding
-        return Self.headerHeight + Self.dividerHeight + contentHeight + Self.dividerHeight + Self.footerHeight
+    /// Fixed window height — always shows space for 9 rows (Spotlight-style).
+    private static var fixedWindowHeight: CGFloat {
+        let contentHeight = maxVisibleRows * rowHeight + listVerticalPadding
+        return headerHeight + dividerHeight + contentHeight + dividerHeight + footerHeight
+    }
+
+    /// Shows the action window in settings mode (triggered by menu bar left-click).
+    func showSettingsWindow() {
+        if isVisible {
+            // Window already showing — toggle: navigate to settings or dismiss
+            NotificationCenter.default.post(name: .caiShowSettings, object: nil)
+            return
+        }
+        // Not visible — create a new window in settings mode
+        clearCache()
+        let emptyDetection = ContentResult(type: .shortText, confidence: 0.0, entities: ContentEntities())
+        showActionWindow(text: "", detection: emptyDetection, showSettings: true)
     }
 
     /// Shows the action window centered on screen with actions for the given content.
-    func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil) {
+    func showActionWindow(text: String, detection: ContentResult, sourceApp: String? = nil, showSettings: Bool = false) {
         // If window is already visible, dismiss first
         hideWindow()
+
+        // Skip resume cache when opening directly to settings
+        if showSettings {
+            clearCache()
+        }
 
         // Resume: if reopened with the same text within the timeout, restore the
         // previous window (preserving result view, custom prompt state, etc.)
@@ -144,8 +158,7 @@ class WindowController: NSObject, ObservableObject {
         // Reset selection state
         selectionState = SelectionState()
 
-        // Calculate dynamic height
-        let windowHeight = calculateWindowHeight(actionCount: actions.count)
+        let windowHeight = Self.fixedWindowHeight
 
         // Create dismiss/execute closures
         let dismissAction: () -> Void = { [weak self] in
@@ -163,7 +176,8 @@ class WindowController: NSObject, ObservableObject {
             selectionState: selectionState,
             sourceApp: sourceApp,
             onDismiss: dismissAction,
-            onExecute: executeAction
+            onExecute: executeAction,
+            showSettingsOnAppear: showSettings
         )
 
         // Wrap in a hosting view (keyboard events are handled exclusively

@@ -3,7 +3,6 @@ import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
-    var popover: NSPopover?
     private let hotKeyManager = HotKeyManager()
     private let clipboardService = ClipboardService.shared
     private let contentDetector = ContentDetector.shared
@@ -47,26 +46,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             print("Failed to create status bar button")
         }
-
-        // Create popover for left-click — shows settings
-        popover = NSPopover()
-        popover?.contentSize = NSSize(width: 340, height: 440)
-        popover?.behavior = .transient
-        let settingsView = SettingsView(
-            onShowShortcuts: { [weak self] in
-                self?.popover?.performClose(nil)
-                self?.showShortcutsWindow()
-            },
-            onShowDestinations: { [weak self] in
-                self?.popover?.performClose(nil)
-                self?.showDestinationsWindow()
-            },
-            onShowModelSetup: { [weak self] in
-                self?.popover?.performClose(nil)
-                self?.showModelSetupWindow()
-            }
-        )
-        popover?.contentViewController = NSHostingController(rootView: settingsView)
 
         // Check accessibility permission
         permissionsManager.checkAccessibilityPermission()
@@ -142,8 +121,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Right-click: show menu
             showMenu()
         } else {
-            // Left-click: toggle settings popover
-            togglePopover()
+            // Left-click: show settings in the main Cai window
+            windowController.showSettingsWindow()
         }
     }
 
@@ -155,10 +134,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openSettings), keyEquivalent: ","))
-
-        menu.addItem(NSMenuItem.separator())
-
         menu.addItem(NSMenuItem(title: "About Cai", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit Cai", action: #selector(quitApp), keyEquivalent: "q"))
 
@@ -167,20 +142,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = nil
     }
 
-    @objc func togglePopover() {
-        if let button = statusItem?.button {
-            if let popover = popover {
-                if popover.isShown {
-                    popover.performClose(nil)
-                } else {
-                    popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-                }
-            }
-        }
-    }
-
     @objc func openSettings() {
-        togglePopover()
+        windowController.showSettingsWindow()
     }
 
     @objc func openCai() {
@@ -262,7 +225,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = NSHostingView(rootView: aboutView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 260, height: 220),
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 300),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false

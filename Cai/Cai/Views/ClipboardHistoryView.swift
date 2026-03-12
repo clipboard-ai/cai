@@ -86,6 +86,8 @@ struct ClipboardHistoryView: View {
                 }
             }
 
+            Spacer(minLength: 0)
+
             Divider()
                 .background(Color.caiDivider)
 
