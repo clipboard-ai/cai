@@ -94,7 +94,8 @@ struct ModelSetupView: View {
             .padding(.horizontal, 40)
 
             // Skip option
-            Button("I already use LM Studio / Ollama") {
+            Button("Skip — I have my own LLM setup") {
+                settings.builtInSetupDone = true
                 onComplete()
             }
             .font(.system(size: 11, weight: .medium))
