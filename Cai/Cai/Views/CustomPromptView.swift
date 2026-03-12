@@ -1,38 +1,23 @@
 import SwiftUI
 
-/// Shared state for CustomPromptView so the parent can query its phase
-/// and route keyboard events correctly.
+/// Shared state for CustomPromptView so the parent can persist the prompt text
+/// across view recreations (e.g., window resume cache).
 class CustomPromptState: ObservableObject {
-    @Published var phase: CustomPromptPhase = .input
-    /// Holds the LLM result so the parent can copy it on Enter.
-    @Published var resultText: String = ""
+    @Published var promptText: String = ""
 
     func reset() {
-        phase = .input
-        resultText = ""
+        promptText = ""
     }
 }
 
-enum CustomPromptPhase {
-    case input, result
-}
-
-/// Inline view for typing a custom prompt to send to the local LLM.
-/// Two phases: (1) text input, (2) result display.
-/// Keyboard events are routed by the parent (ActionListWindow).
+/// Input-only view for typing a custom prompt.
+/// On submit (Cmd+Enter), calls `onSubmit` with the instruction text.
+/// The parent (ActionListWindow) handles the LLM call and shows ResultView.
 struct CustomPromptView: View {
     let clipboardText: String
     let sourceApp: String?
     @ObservedObject var state: CustomPromptState
-    /// Output destinations shown in result phase.
-    var destinations: [OutputDestination] = []
-    /// Called when user selects a destination.
-    var onSelectDestination: ((OutputDestination, String) -> Void)?
-
-    @State private var prompt: String = ""
-    @State private var result: String = ""
-    @State private var isLoading: Bool = false
-    @State private var error: String?
+    let onSubmit: (String) -> Void
 
     @FocusState private var isPromptFocused: Bool
 
@@ -64,41 +49,44 @@ struct CustomPromptView: View {
             Divider()
                 .background(Color.caiDivider)
 
-            // Content
-            if state.phase == .input {
-                inputContent
-            } else {
-                resultContent
+            // Input content
+            VStack(spacing: 12) {
+                Text("What would you like to do with this content?")
+                    .font(.system(size: 12))
+                    .foregroundColor(.caiTextSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Multiline TextEditor with placeholder
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.caiSurface.opacity(0.6))
+
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.caiDivider.opacity(0.5), lineWidth: 0.5)
+
+                    TextEditor(text: $state.promptText)
+                        .font(.system(size: 13))
+                        .foregroundColor(.caiTextPrimary)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
+                        .padding(8)
+                        .focused($isPromptFocused)
+
+                    // Placeholder (TextEditor has no native placeholder)
+                    if state.promptText.isEmpty {
+                        Text("e.g. Rewrite formally, Extract key points, Convert to bullet list...")
+                            .font(.system(size: 13))
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 16)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .frame(height: 80)
             }
+            .padding(16)
 
             Spacer(minLength: 0)
-
-            // Destination chips — shown in result phase after result loads
-            if state.phase == .result && !isLoading && error == nil && !destinations.isEmpty {
-                Divider()
-                    .background(Color.caiDivider)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        Text("Send to")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.caiTextSecondary.opacity(0.5))
-
-                        ForEach(Array(destinations.enumerated()), id: \.element.id) { index, dest in
-                            DestinationChip(
-                                destination: dest,
-                                shortcut: index + 1,
-                                isSelected: false,
-                                action: {
-                                    onSelectDestination?(dest, result)
-                                }
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                }
-            }
 
             Divider()
                 .background(Color.caiDivider)
@@ -106,64 +94,12 @@ struct CustomPromptView: View {
             // Footer
             HStack(spacing: 12) {
                 KeyboardHint(key: "Esc", label: "Back")
-                if state.phase == .input {
-                    KeyboardHint(key: "⌘↵", label: "Submit")
-                } else if !isLoading && error == nil {
-                    KeyboardHint(key: "↵", label: "Copy")
-                }
+                KeyboardHint(key: "⌘↵", label: "Submit")
                 Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .onChange(of: state.phase) { newPhase in
-            WindowController.passThrough = (newPhase == .input)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .caiCmdEnterPressed)) { _ in
-            if state.phase == .input {
-                submitPrompt()
-            }
-        }
-    }
-
-    // MARK: - Input Phase
-
-    private var inputContent: some View {
-        VStack(spacing: 12) {
-            Text("What would you like to do with this content?")
-                .font(.system(size: 12))
-                .foregroundColor(.caiTextSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Multiline TextEditor with placeholder
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.caiSurface.opacity(0.6))
-
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(Color.caiDivider.opacity(0.5), lineWidth: 0.5)
-
-                TextEditor(text: $prompt)
-                    .font(.system(size: 13))
-                    .foregroundColor(.caiTextPrimary)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-                    .padding(8)
-                    .focused($isPromptFocused)
-
-                // Placeholder (TextEditor has no native placeholder)
-                if prompt.isEmpty {
-                    Text("e.g. Rewrite formally, Extract key points, Convert to bullet list...")
-                        .font(.system(size: 13))
-                        .foregroundColor(.caiTextSecondary.opacity(0.5))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 16)
-                        .allowsHitTesting(false)
-                }
-            }
-            .frame(height: 80)
-        }
-        .padding(16)
         .onAppear {
             WindowController.passThrough = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -173,97 +109,10 @@ struct CustomPromptView: View {
         .onDisappear {
             WindowController.passThrough = false
         }
-    }
-
-    // MARK: - Result Phase
-
-    private var resultContent: some View {
-        ScrollView {
-            if isLoading {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Processing...")
-                        .font(.system(size: 12))
-                        .foregroundColor(.caiTextSecondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 120)
-                .padding()
-            } else if let error = error {
-                VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 24))
-                        .foregroundColor(.orange)
-                    Text(error)
-                        .font(.system(size: 12))
-                        .foregroundColor(.caiTextSecondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, minHeight: 120)
-                .padding()
-            } else {
-                Text(markdownAttributedString(from: result))
-                    .font(.system(size: 13))
-                    .foregroundColor(.caiTextPrimary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-            }
-        }
-        .frame(maxHeight: 240)
-    }
-
-    // MARK: - Markdown
-
-    /// Parses a markdown string into an AttributedString for rich rendering.
-    /// Falls back to plain text if markdown parsing fails.
-    private func markdownAttributedString(from text: String) -> AttributedString {
-        do {
-            var attributed = try AttributedString(
-                markdown: text,
-                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-            )
-            attributed.font = .system(size: 13)
-            attributed.foregroundColor = .caiTextPrimary
-            return attributed
-        } catch {
-            return AttributedString(text)
+        .onReceive(NotificationCenter.default.publisher(for: .caiCmdEnterPressed)) { _ in
+            let trimmed = state.promptText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            onSubmit(trimmed)
         }
     }
-
-    // MARK: - Private
-
-    private func submitPrompt() {
-        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        withAnimation(.easeInOut(duration: 0.15)) {
-            state.phase = .result
-            isLoading = true
-            error = nil
-        }
-
-        let textToProcess = clipboardText
-        Task {
-            do {
-                let output = try await LLMService.shared.customAction(textToProcess, instruction: trimmed, appContext: sourceApp)
-
-                await MainActor.run {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        result = output
-                        isLoading = false
-                    }
-                    state.resultText = output
-                }
-            } catch {
-                await MainActor.run {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        self.error = error.localizedDescription
-                        isLoading = false
-                    }
-                }
-            }
-        }
-    }
-
 }

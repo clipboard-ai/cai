@@ -137,9 +137,8 @@ struct ActionListWindow: View {
                     clipboardText: text,
                     sourceApp: sourceApp,
                     state: customPromptState,
-                    destinations: settings.enabledDestinations,
-                    onSelectDestination: { dest, resultText in
-                        executeDestination(dest, with: resultText)
+                    onSubmit: { instruction in
+                        handleCustomPromptSubmit(instruction)
                     }
                 )
             } else if showSettings {
@@ -247,15 +246,9 @@ struct ActionListWindow: View {
                 showShortcutsManagement = false
             }
         } else if showCustomPrompt {
-            if customPromptState.phase == .result {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    customPromptState.phase = .input
-                }
-            } else {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    showCustomPrompt = false
-                    customPromptState.reset()
-                }
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showCustomPrompt = false
+                customPromptState.reset()
             }
         } else if showSettings {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -309,14 +302,6 @@ struct ActionListWindow: View {
             guard destIndex >= 0, destIndex < dests.count,
                   !pendingResultText.isEmpty else { return }
             executeDestination(dests[destIndex], with: pendingResultText)
-        case .customPrompt:
-            // Cmd+1..9 on custom prompt result → execute output destination
-            guard customPromptState.phase == .result else { break }
-            let dests = settings.enabledDestinations
-            let destIndex = number - 1
-            guard destIndex >= 0, destIndex < dests.count,
-                  !customPromptState.resultText.isEmpty else { return }
-            executeDestination(dests[destIndex], with: customPromptState.resultText)
         case .history:
             let historyIndex = number - 1
             let entries = displayedHistoryEntries
@@ -381,13 +366,6 @@ struct ActionListWindow: View {
                 SystemActions.copyToClipboard(pendingResultText)
             }
             copyAndDismissWithToast()
-        case .customPrompt:
-            if customPromptState.phase == .result {
-                if !customPromptState.resultText.isEmpty {
-                    SystemActions.copyToClipboard(customPromptState.resultText)
-                }
-                copyAndDismissWithToast()
-            }
         default:
             break
         }
@@ -953,6 +931,18 @@ struct ActionListWindow: View {
         resultGenerator = generator
         withAnimation(.easeInOut(duration: 0.15)) {
             showResult = true
+        }
+    }
+
+    private func handleCustomPromptSubmit(_ instruction: String) {
+        let clipboardText = self.text
+        let app = self.sourceApp
+
+        showCustomPrompt = false
+
+        showResultView(title: instruction) {
+            return try await LLMService.shared.customAction(
+                clipboardText, instruction: instruction, appContext: app)
         }
     }
 
