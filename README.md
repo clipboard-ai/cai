@@ -4,7 +4,7 @@
 
 <h1 align="center">Cai</h1>
 
-<h3 align="center">Select any text. Get smart actions.</h3>
+<h3 align="center">Select any text or image. Get smart actions.</h3>
 
 <p align="center">
   A privacy-first clipboard assistant powered by local AI.<br>
@@ -12,26 +12,29 @@
 </p>
 
 <p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/clipboard-ai/cai?label=download&color=blue" alt="Download"></a>
   <img src="https://img.shields.io/badge/macOS-13.0%2B-blue" alt="macOS 13.0+">
-  <img src="https://img.shields.io/badge/Swift-5.9-orange" alt="Swift 5.9">
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+  <img src="https://img.shields.io/badge/Swift-5.9-F05138" alt="Swift 5.9">
+  <img src="https://img.shields.io/badge/runs%20100%25%20locally-black" alt="Runs locally">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
+  <a href="../../stargazers"><img src="https://img.shields.io/github/stars/clipboard-ai/cai?style=flat" alt="GitHub Stars"></a>
 </p>
 
 <p align="center">
-  <a href="https://getcai.app">getcai.app</a>
+  <a href="https://getcai.app">Website</a> · <a href="../../releases/latest">Download</a> · <a href="https://github.com/clipboard-ai/cai-extensions">Extensions</a>
 </p>
 
 ---
 
 ![Cai Demo](assets/cai-demo.gif)
 
-Cai is a native macOS menu bar app that detects what's on your clipboard and offers smart, context-aware actions. Copy a meeting invite and it creates a calendar event. Copy an address and it opens Maps. Copy any text and ask your local AI to summarize, translate, or do anything you want — all without leaving your keyboard.
+Cai is a native macOS menu bar app that detects what's on your clipboard and offers smart, context-aware actions. Copy a meeting invite and it creates a calendar event. Copy an address and it opens Maps. Copy a screenshot and it extracts the text. Copy any text and ask your local AI to summarize, translate, or do anything you want — all without leaving your keyboard.
 
 No cloud. No telemetry. No accounts.
 
 ## How It Works
 
-1. **Select text** anywhere on your Mac
+1. **Select text or copy an image** anywhere on your Mac
 2. Press **⌥C** (Option+C)
 3. Cai detects the content type and shows relevant actions
 4. Pick an action with arrow keys or **⌘1–9**
@@ -42,18 +45,22 @@ No cloud. No telemetry. No accounts.
 - Select `"Let's meet Tuesday at 3pm at Starbucks"` → Create calendar event, Open in Maps
 - Select an email in Mail → Reply, Summarize, Translate
 - Select any text → Custom Action: *"Extract ingredients for 2 people"*
+- Copy a screenshot → Image to Text (OCR), then Summarize, Translate, or any action
 - Select a project name → Shortcut: search in Google Drive (`https://drive.google.com/drive/search?q=%s`)
 
 ## Features
 
-- **Smart detection** of 7 content types (word, text, meeting, address, URL, JSON) with context-aware actions
-- **Built-in AI** — ships with [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF), downloaded on first launch. Also works with LM Studio, Ollama, or any OpenAI-compatible server
+- **Smart detection** of content types (word, text, image, meeting, address, URL, JSON) with context-aware actions
+- **Image to Text** — copy a screenshot or image and Cai extracts the text via on-device OCR (Apple Vision), then run any action on it
+- **Built-in AI** — ships with [Ministral 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF), downloaded on first launch. Also compatible with [Apple Intelligence](#apple-intelligence) (macOS 26+), LM Studio, Ollama, or any OpenAI-compatible server
+- **Built-in chat** — ask follow-up questions with **Tab**, or press **⌘N** to start a new chat without clipboard content
 - **Custom AI action** (⌘1) — free-form prompt to do anything: improve writing, create email replies, translate, count words
 - **Custom shortcuts** — save reusable prompts and URL templates, access them by typing to filter
 - **Output destinations** — send results to Mail, Notes, Reminders, or custom webhooks, URL schemes, AppleScript, and shell commands
-- **Type-to-filter** — start typing to filter actions, shortcuts, and destinations by name
-- **Clipboard history** — access last 9 items with ⌘0
+- **Clipboard history** — search, pin, and reuse your last 100 clipboard items with **⌘0**
 - **App-aware** — Cai knows which app you're in (Mail, Slack, Safari…) and adapts AI responses to match the context
+- **About You** — set personal context (profession, tone, preferences) so AI responses are tailored to you
+- **Type-to-filter** — start typing to filter actions, shortcuts, and destinations by name
 - **Keyboard-first** — navigate and execute everything without touching the mouse
 - **Privacy-first** — no internet required, no data leaves your machine
 
@@ -65,8 +72,10 @@ No cloud. No telemetry. No accounts.
 | **↑ ↓** | Navigate actions |
 | **↵** | Execute selected action |
 | **⌘1–9** | Jump to action by number |
-| **⌘0** | Open clipboard history |
+| **⌘0** | Open clipboard history (searchable, with pinning) |
+| **⌘N** | New chat (ask anything, without clipboard content) |
 | **⌘↵** | Submit custom prompt / Copy result |
+| **Tab** | Ask a follow-up question on the result |
 | **A–Z** | Type to filter actions and shortcuts |
 | **Esc** | Clear filter / Back / Dismiss |
 
@@ -117,45 +126,15 @@ Models are stored in `~/Library/Application Support/Cai/models/`. The engine sta
 
 **Custom models:** Drop any `.gguf` file into the models folder and select it from the model picker in Settings or the action window footer. Cai will restart the engine with your chosen model.
 
+### Apple Intelligence
+
+On Macs with an M1 chip or later running **macOS 26+**, Cai can use Apple Intelligence as a built-in model provider — no download needed. If available, Cai will offer it during first launch setup.
+
 ### External providers
 
-If you already use LM Studio, Ollama, or another local server, skip the built-in download. Cai works with any OpenAI-compatible endpoint.
+Cai works with **LM Studio**, **Ollama**, or any OpenAI-compatible endpoint (local or cloud). Auto-detects running providers on launch.
 
-| Provider | Default URL | Setup |
-|---|---|---|
-| **LM Studio** | `http://127.0.0.1:1234/v1` | [Download](https://lmstudio.ai) → Load model → Start server |
-| **Ollama** | `http://127.0.0.1:11434/v1` | [Install](https://ollama.ai) → `ollama pull qwen3:4b` |
-| **Jan AI** | `http://127.0.0.1:1337/v1` | [Download](https://jan.ai) → Load model → Start server |
-| **Custom** | User-defined | Any OpenAI-compatible server |
-
-Cai auto-detects running providers on launch — no manual setup needed in most cases.
-
-### Cloud & authenticated providers
-
-Cai works with any OpenAI-compatible cloud API. Set the provider to **Custom**, enter the API base URL, and add your API key in Settings.
-
-| Provider | Base URL | Notes |
-|---|---|---|
-| **OpenAI** | `https://api.openai.com` | GPT-4o, GPT-4o-mini, etc. |
-| **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini Flash, Pro, etc. |
-| **OpenRouter** | `https://openrouter.ai/api` | 200+ models including Claude, Llama, Mistral |
-| **Together AI** | `https://api.together.xyz` | Fast inference, open models |
-| **Groq** | `https://api.groq.com/openai` | Ultra-fast inference |
-| **Mistral AI** | `https://api.mistral.ai` | Mistral models |
-
-The API key is stored in the **macOS Keychain** (encrypted at rest). AI is optional — system actions (Maps, Calendar, Search, Pretty Print JSON) work without it.
-
-> **Note:** Anthropic's Claude API is not directly compatible. Use [OpenRouter](https://openrouter.ai) to access Claude models through an OpenAI-compatible interface.
-
-### Recommended Models
-
-| Model | Params | Why | Install |
-|---|---|---|---|
-| **Ministral 3B** _(built-in)_ | 3B | Fast, concise output. Ships with Cai. | Automatic on first launch |
-| **Qwen3 4B** | 4B | Smartest at this size — best for complex instructions. | `lms get qwen3-4b` / `ollama pull qwen3:4b` |
-| **Llama 3.2 3B** | 3B | Reliable all-rounder. | `lms get llama-3.2-3b-instruct` / `ollama pull llama3.2:3b` |
-| **Gemma 3 4B** | 4B | Strong multilingual support (140+ languages). | `lms get gemma-3-4b` / `ollama pull gemma3:4b` |
-| **Qwen3 8B** | 8B | Best quality in the small range. Slower. | `lms get qwen3-8b` / `ollama pull qwen3:8b` |
+AI is optional — system actions (Maps, Calendar, Search, Pretty Print JSON) work without it. API keys are stored in the **macOS Keychain**.
 
 ## Custom Shortcuts
 
@@ -175,6 +154,16 @@ Send results to an output destination instead of just copying to clipboard.
 **Custom destinations:** Webhook, AppleScript, Deeplink, Shell Command — use `{{result}}` as a placeholder for your text.
 
 Create them in Preferences → Output Destinations. Enable "Show in action list" for direct-access workflows.
+
+## Community Extensions
+
+Browse and install extensions from the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo.
+
+**Install:** Copy an extension's YAML → press **⌥C** → "Install Extension" → review and confirm.
+
+Cai shows a trust confirmation before installing — you'll see the extension name, type, author, and where it sends data (if applicable). AppleScript and shell extensions are blocked from clipboard install for security.
+
+**Create your own:** Fork the repo, add a YAML file, and open a PR. See the [extension guide](https://github.com/clipboard-ai/cai-extensions#creating-extensions) for details.
 
 ## Requirements
 
