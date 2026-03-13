@@ -96,7 +96,7 @@ You're all set! Press **⌥C** with any text selected to start using Cai.
 ### Build from Source
 
 ```bash
-git clone https://github.com/soyasis/cai.git
+git clone https://github.com/clipboard-ai/cai.git
 cd cai/Cai
 open Cai.xcodeproj
 ```
