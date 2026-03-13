@@ -54,7 +54,7 @@ struct AboutView: View {
             // Links
             HStack(spacing: 16) {
                 linkButton(title: "Website", icon: "globe", url: "https://getcai.app")
-                linkButton(title: "GitHub", icon: "chevron.left.forwardslash.chevron.right", url: "https://github.com/soyasis/cai")
+                linkButton(title: "GitHub", icon: "chevron.left.forwardslash.chevron.right", url: "https://github.com/clipboard-ai/cai")
             }
 
             Spacer().frame(height: 20)
