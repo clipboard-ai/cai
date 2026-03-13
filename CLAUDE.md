@@ -55,6 +55,7 @@ Cai/Cai/
 │   ├── KeychainHelper.swift    # Lightweight macOS Keychain wrapper for secrets (API keys)
 │   ├── ClipboardHistory.swift  # Last 9 unique clipboard entries (with pin support)
 │   ├── OCRService.swift        # On-device image OCR via Apple Vision framework
+│   ├── ExtensionParser.swift    # Parses community extension YAML into shortcuts/destinations
 │   ├── UpdateChecker.swift     # GitHub release version check (24h interval)
 │   └── PermissionsManager.swift # Accessibility permission check/polling
 └── Views/
@@ -127,6 +128,39 @@ Users can create custom destinations via Settings → Output Destinations:
 
 ### "Show in Action List"
 Destinations with `showInActionList: true` appear as direct-route actions (skip LLM step). They're appended by `ActionGenerator` and deduplicated by UUID.
+
+## Community Extensions
+
+Users can install extensions from the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo by copying YAML to clipboard.
+
+### Install Flow
+1. User copies extension YAML (starts with `# cai-extension` header)
+2. `ContentDetector` detects `.caiExtension` at priority 0 (highest)
+3. `ActionGenerator` shows single "Install Extension" action
+4. `ExtensionParser` parses YAML via Yams into `ParsedExtension` (.shortcut or .destination)
+5. Trust confirmation view shows name, type, author (clickable GitHub link), and webhook URL warning
+6. On confirm: saves as `CaiShortcut` or `OutputDestination`, with duplicate detection by name
+
+### Extension Types
+- **prompt** → `CaiShortcut` with `.prompt` type
+- **url** → `CaiShortcut` with `.url` type
+- **webhook** → `OutputDestination` with `.webhook` type
+- **deeplink** → `OutputDestination` with `.deeplink` type
+- **applescript/shell** → blocked from clipboard install for security
+
+### YAML Format
+```yaml
+# cai-extension
+name: Extension Name
+description: What it does
+author: github-username
+version: "1.0"
+tags: [tag1, tag2]
+icon: sf.symbol.name
+type: prompt
+prompt: |
+  Your prompt here with {{result}} placeholder
+```
 
 ## Built-in LLM
 
@@ -270,12 +304,14 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
 - **API key only works with OpenAI-compatible providers** — uses `Authorization: Bearer` header with `/v1/chat/completions`. Works with OpenAI, OpenRouter, Together AI, Groq, Mistral AI, etc. Does NOT work with Anthropic's native API (different endpoint/format/header).
 - **Clipboard text is clamped to 50K characters** — `ClipboardHistory.maxTextLength` (50,000 chars) prevents memory bloat from huge clipboard content. Applied in `addEntry()` (history storage) and `openWithClipboard()` (action pipeline). Silent truncation — no UI indicator.
 - **OCR uses Apple Vision framework** — `OCRService` extracts text from clipboard images on-device (~50-200ms, Neural Engine). Supports all macOS image formats via `NSImage(pasteboard:)`. Background OCR in `ClipboardHistory.checkForChanges()` gives parity with text entries. Image entries use `photo` SF Symbol (macOS 13+ compatible, NOT `doc.text.image` which is macOS 14+).
+- **Extension detection uses `# cai-extension` header** — `ContentDetector` checks `trimmed.hasPrefix("# cai-extension")` at priority 0 (before URL). `ExtensionParser` strips the header line before passing to Yams. AppleScript/shell types are blocked from clipboard install — they must be created locally in Settings.
 - **Image file detection checks file URLs** — `extractTextFromClipboardImageFile()` uses `NSPasteboard.readObjects(forClasses: [NSURL.self])` with `urlReadingFileURLsOnly: true` to detect Finder-copied image files. Filters by image extensions (png, jpg, jpeg, tiff, etc.). Runs before text check in priority chain.
 
 ## Dependencies
 
 - **HotKey** (SPM): [soffes/HotKey](https://github.com/soffes/HotKey) v0.2.0+ — global keyboard shortcut
 - **Sentry** (SPM): [getsentry/sentry-cocoa](https://github.com/getsentry/sentry-cocoa) v8.0.0+ — opt-in crash reporting
+- **Yams** (SPM): [jpsim/Yams](https://github.com/jpsim/Yams) v5.0.0+ — YAML parsing for community extensions
 - **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8022 — local LLM inference engine (ARM64 macOS)
 - **macOS 13.0+** (Ventura) deployment target
 
