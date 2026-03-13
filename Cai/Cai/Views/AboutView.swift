@@ -54,7 +54,10 @@ struct AboutView: View {
             // Links
             HStack(spacing: 16) {
                 linkButton(title: "Website", icon: "globe", url: "https://getcai.app")
-                linkButton(title: "GitHub", icon: "chevron.left.forwardslash.chevron.right", url: "https://github.com/clipboard-ai/cai")
+                linkButton(title: "GitHub", url: "https://github.com/clipboard-ai/cai") {
+                    GitHubIcon(color: .caiPrimary)
+                        .frame(width: 11, height: 11)
+                }
             }
 
             Spacer().frame(height: 20)
@@ -65,14 +68,20 @@ struct AboutView: View {
     }
 
     private func linkButton(title: String, icon: String, url: String) -> some View {
+        linkButton(title: title, url: url) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+        }
+    }
+
+    private func linkButton<Icon: View>(title: String, url: String, @ViewBuilder icon: () -> Icon) -> some View {
         Button(action: {
             if let url = URL(string: url) {
                 NSWorkspace.shared.open(url)
             }
         }) {
             HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
+                icon()
                 Text(title)
                     .font(.system(size: 12))
             }
