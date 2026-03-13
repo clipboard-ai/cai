@@ -249,6 +249,21 @@ struct DestinationsManagementView: View {
             .pickerStyle(.segmented)
             .font(.system(size: 10))
 
+            // Code execution warning
+            if formTypeTag == "applescript" || formTypeTag == "shell" {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                    Text("This destination will execute code on your machine. Only use commands you understand and trust.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.08))
+                .cornerRadius(6)
+            }
+
             // Type-specific config
             switch formTypeTag {
             case "applescript":
