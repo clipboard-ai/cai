@@ -220,8 +220,8 @@ struct ActionGenerator {
 
                 items.append(ActionItem(
                     id: "proofread",
-                    title: "Proofread",
-                    subtitle: "Fix grammar and spelling",
+                    title: "Fix Grammar",
+                    subtitle: "Fix grammar, spelling, and punctuation",
                     icon: "pencil.and.outline",
                     shortcut: shortcut,
                     type: .llmAction(.proofread)

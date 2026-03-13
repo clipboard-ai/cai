@@ -1072,7 +1072,7 @@ struct ActionListWindow: View {
         case .define: return "Definition"
         case .explain: return "Explanation"
         case .reply: return "Reply"
-        case .proofread: return "Proofread"
+        case .proofread: return "Fix Grammar"
         case .custom(let prompt): return prompt
         }
     }
