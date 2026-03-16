@@ -200,6 +200,17 @@ struct DestinationsManagementView: View {
                     .cornerRadius(4)
             }
 
+            // Share as extension
+            Button(action: {
+                shareDestinationAsExtension(dest)
+            }) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+
             // Edit
             Button(action: {
                 loadFormFromDestination(dest)
@@ -607,5 +618,76 @@ struct DestinationsManagementView: View {
             editingDestinationId = nil
         }
         resetForm()
+    }
+
+    // MARK: - Share as Extension
+
+    private func shareDestinationAsExtension(_ dest: OutputDestination) {
+        var yaml = """
+            # cai-extension
+            name: \(dest.name)
+            description: \(dest.name)
+            author: your-github-username
+            version: "1.0"
+            tags: []
+            icon: \(dest.icon)
+            """
+
+        switch dest.type {
+        case .webhook(let config):
+            yaml += "\ntype: webhook"
+            yaml += "\nshow_in_action_list: \(dest.showInActionList)"
+            yaml += "\nwebhook:"
+            yaml += "\n  url: \"\(config.url)\""
+            yaml += "\n  method: \(config.method)"
+            if !config.headers.isEmpty {
+                yaml += "\n  headers:"
+                for (key, value) in config.headers {
+                    yaml += "\n    \(key): \(value)"
+                }
+            }
+            yaml += "\n  body: '\(config.bodyTemplate)'"
+
+        case .deeplink(let template):
+            yaml += "\ntype: deeplink"
+            yaml += "\nshow_in_action_list: \(dest.showInActionList)"
+            yaml += "\ndeeplink: \"\(template)\""
+
+        case .shell(let command):
+            let indented = command.components(separatedBy: "\n")
+                .map { "  \($0)" }.joined(separator: "\n")
+            yaml += "\ntype: shell"
+            yaml += "\ncommand: |\n\(indented)"
+
+        case .applescript(let template):
+            let indented = template.components(separatedBy: "\n")
+                .map { "  \($0)" }.joined(separator: "\n")
+            yaml += "\ntype: applescript"
+            yaml += "\napplescript: |\n\(indented)"
+        }
+
+        // Setup fields
+        if !dest.setupFields.isEmpty {
+            yaml += "\nsetup:"
+            for field in dest.setupFields {
+                yaml += "\n  - key: \(field.key)"
+                yaml += "\n    label: \(field.key)"
+                yaml += "\n    secret: \(field.isSecret)"
+            }
+        }
+
+        yaml += "\n"
+
+        SystemActions.copyToClipboard(yaml)
+
+        if let url = URL(string: "https://github.com/clipboard-ai/cai-extensions") {
+            NSWorkspace.shared.open(url)
+        }
+
+        NotificationCenter.default.post(
+            name: .caiShowToast,
+            object: nil,
+            userInfo: ["message": "Extension YAML copied"]
+        )
     }
 }

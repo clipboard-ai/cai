@@ -159,6 +159,17 @@ struct ShortcutsManagementView: View {
 
             Spacer()
 
+            // Share as extension
+            Button(action: {
+                shareShortcutAsExtension(shortcut)
+            }) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .padding(4)
+            }
+            .buttonStyle(.plain)
+
             // Edit button
             Button(action: {
                 formName = shortcut.name
@@ -344,5 +355,49 @@ struct ShortcutsManagementView: View {
         formName = ""
         formType = .prompt
         formValue = ""
+    }
+
+    // MARK: - Share as Extension
+
+    private func shareShortcutAsExtension(_ shortcut: CaiShortcut) {
+        let slug = shortcut.name.lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
+
+        var yaml = """
+            # cai-extension
+            name: \(shortcut.name)
+            description: \(shortcut.name)
+            author: your-github-username
+            version: "1.0"
+            tags: []
+            icon: \(shortcut.type.icon)
+            type: \(shortcut.type.rawValue)\n
+            """
+
+        switch shortcut.type {
+        case .prompt:
+            let indented = shortcut.value.components(separatedBy: "\n")
+                .map { "  \($0)" }.joined(separator: "\n")
+            yaml += "prompt: |\n\(indented)\n"
+        case .url:
+            yaml += "url: \"\(shortcut.value)\"\n"
+        case .shell:
+            let indented = shortcut.value.components(separatedBy: "\n")
+                .map { "  \($0)" }.joined(separator: "\n")
+            yaml += "command: |\n\(indented)\n"
+        }
+
+        SystemActions.copyToClipboard(yaml)
+
+        if let url = URL(string: "https://github.com/clipboard-ai/cai-extensions") {
+            NSWorkspace.shared.open(url)
+        }
+
+        NotificationCenter.default.post(
+            name: .caiShowToast,
+            object: nil,
+            userInfo: ["message": "Extension YAML copied"]
+        )
     }
 }
