@@ -58,7 +58,7 @@ Cai/Cai/
     ├── ResultView.swift        # LLM response display (loading/error/success)
     ├── CustomPromptView.swift  # Free-form LLM prompt (two-phase: input → result)
     ├── SettingsView.swift      # Preferences panel
-    ├── ShortcutsManagementView.swift  # Create/edit custom shortcuts
+    ├── ShortcutsManagementView.swift  # Create/edit custom actions
     ├── DestinationsManagementView.swift # Create/edit output destinations
     ├── ExtensionBrowserView.swift # Browse/search/install community extensions
     ├── DestinationChip.swift   # Destination button for result/custom prompt views
@@ -81,7 +81,7 @@ Cai/Cai/
 > Detailed docs for each: [`_docs/ARCHITECTURE.md`](_docs/ARCHITECTURE.md)
 
 - **Core flow**: Option+C → CGEvent Cmd+C → ContentDetector → ActionGenerator → ActionListWindow
-- **Custom shortcuts**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView.
+- **Custom actions**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView. (Code still uses `CaiShortcut` / `shortcuts` internally.)
 - **Output destinations**: Email, Notes, Reminders (built-in) + Webhook, AppleScript, Deeplink, Shell (custom). `{{result}}` placeholder, auto-escaped per type.
 - **Community extensions**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
 - **Built-in LLM**: Bundled llama-server (llama.cpp b8022). Auto-download Ministral 3B. Crash recovery. See also `_docs/BUILT-IN-LLM.md`.
