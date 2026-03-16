@@ -44,11 +44,15 @@ Meeting/address/venue detection is skipped for text >200 chars — long text alw
 
 ## Features
 - **Type-to-filter**: Start typing to filter actions and shortcuts by prefix
-- **Custom shortcuts**: User-defined prompts and URL templates (with %s placeholder)
+- **Custom shortcuts**: User-defined prompts, URL templates (%s), and shell commands ({{result}})
+- **Shell shortcuts**: Run shell commands on clipboard text, display output in result view (e.g. Base64 decode, word count, MD5 hash). 15s timeout, stdin piping, follow-up LLM queries on output.
+- **Community extensions**: In-app extension browser (Settings → Community Extensions → Browse) fetches from curated GitHub repo. Search, one-tap install, shell confirmation. Also installable by copying YAML to clipboard.
+- **Output destinations**: Send text to external apps/services (Email, Notes, Reminders built-in; Webhook, AppleScript, Deeplink, Shell custom)
 - **App context**: Frontmost app name passed to LLM prompts (e.g., "from Mail")
 - **Clipboard history**: Last 9 unique entries (Cmd+0)
 - **Window resume**: Dismissed window cached for 10s, restores state on reopen
 - **Permission indicator**: Shield icon in Settings header (green/orange)
+- **Auto-updates**: Sparkle framework for checking/installing updates
 
 ## Keyboard Shortcuts
 | Key | Action |
@@ -78,6 +82,9 @@ Meeting/address/venue detection is skipped for text >200 chars — long text alw
 
 ## Dependencies
 - **HotKey** (SPM): soffes/HotKey v0.2.0+
+- **Sentry** (SPM): getsentry/sentry-cocoa v8.0.0+ — opt-in crash reporting
+- **Yams** (SPM): jpsim/Yams v5.0.0+ — YAML parsing for extensions
+- **Sparkle** (SPM): sparkle-project/Sparkle — auto-updates
 - **llama-server** (bundled): llama.cpp b8022, ARM64 macOS, Metal GPU
 - **System**: AppKit, SwiftUI, Foundation, ApplicationServices, Carbon, ServiceManagement
 

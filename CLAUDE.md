@@ -35,9 +35,9 @@ Cai/Cai/
 ├── AppDelegate.swift           # Menu bar icon, hotkey, popover, lifecycle
 ├── CaiNotifications.swift      # Custom notification constants
 ├── Models/
-│   ├── ActionItem.swift        # ActionItem, ActionType, LLMAction enums
-│   ├── CaiSettings.swift       # UserDefaults-backed settings (singleton)
-│   ├── CaiShortcut.swift       # User-defined shortcut model
+│   ├── ActionItem.swift        # ActionItem, ActionType (.shortcutShell, .shortcutURL, etc.), LLMAction enums
+│   ├── CaiSettings.swift       # UserDefaults-backed settings (singleton), installedExtensions tracking
+│   ├── CaiShortcut.swift       # User-defined shortcut model (prompt, url, shell types)
 │   ├── OutputDestination.swift # Destination model, DestinationType, WebhookConfig, SetupField
 │   └── BuiltInDestinations.swift # Pre-defined destinations (Email, Notes, Reminders)
 ├── Services/
@@ -56,6 +56,7 @@ Cai/Cai/
 │   ├── ClipboardHistory.swift  # Last 9 unique clipboard entries (with pin support)
 │   ├── OCRService.swift        # On-device image OCR via Apple Vision framework
 │   ├── ExtensionParser.swift    # Parses community extension YAML into shortcuts/destinations
+│   ├── ExtensionService.swift   # Fetches extension index + YAML from curated GitHub repo
 │   ├── UpdateChecker.swift     # GitHub release version check (24h interval)
 │   └── PermissionsManager.swift # Accessibility permission check/polling
 └── Views/
@@ -66,6 +67,7 @@ Cai/Cai/
     ├── SettingsView.swift      # Preferences panel
     ├── ShortcutsManagementView.swift  # Create/edit custom shortcuts
     ├── DestinationsManagementView.swift # Create/edit output destinations
+    ├── ExtensionBrowserView.swift # Browse/search/install community extensions
     ├── DestinationChip.swift   # Destination button for result/custom prompt views
     ├── ClipboardHistoryView.swift     # Last 9 entries view
     ├── OnboardingPermissionView.swift # First-launch accessibility permission guide
@@ -99,6 +101,22 @@ Option+C → AppDelegate.handleHotKeyTrigger()
     → ActionListWindow (SwiftUI) shown in CaiPanel
 ```
 
+## Custom Shortcuts
+
+User-defined shortcuts appear in the action list alongside built-in actions. Managed via Settings → Shortcuts.
+
+### Shortcut Types (`CaiShortcut.ShortcutType`)
+- **Prompt** (`.prompt`) — LLM prompt template with `{{result}}` placeholder. Runs through LLMService, result shown in ResultView.
+- **URL** (`.url`) — URL template with `%s` placeholder for clipboard text. Opens in default browser.
+- **Shell** (`.shell`) — Shell command with `{{result}}` placeholder. Runs via `/bin/zsh -c`, captures stdout, displays result in ResultView. Text also piped via stdin. 15-second timeout. Follow-up LLM queries enabled on output.
+
+### Shell Shortcut Execution (`ActionListWindow.runShellCommand`)
+- Replaces `{{result}}` in template with shell-escaped text (single-quote escaping only, no wrapping quotes — template controls quoting)
+- Pipes raw clipboard text as stdin
+- Captures stdout for display, stderr for error reporting
+- 15-second timeout via `DispatchQueue.asyncAfter`
+- Example: `echo '{{result}}' | base64 -D` decodes Base64 text
+
 ## Output Destinations
 
 Output destinations define where to send text after an LLM action (or directly from the action list).
@@ -131,22 +149,44 @@ Destinations with `showInActionList: true` appear as direct-route actions (skip 
 
 ## Community Extensions
 
-Users can install extensions from the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo by copying YAML to clipboard.
+Users can install extensions from the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo via two methods:
 
-### Install Flow
+### In-App Extension Browser (Primary)
+1. Settings → Community Extensions → Browse
+2. `ExtensionService.fetchIndex()` loads `index.json` from curated GitHub repo
+3. `ExtensionBrowserView` shows searchable list (filters by name, description, tags)
+4. One-tap install for prompt/url/webhook/deeplink types
+5. Shell extensions show confirmation alert with command preview before install
+6. Installed extensions tracked via `CaiSettings.installedExtensions` (Set<String> of slugs)
+7. Click "Installed" button to uninstall (removes shortcut/destination + slug tracking)
+
+### Clipboard Install (Secondary)
 1. User copies extension YAML (starts with `# cai-extension` header)
 2. `ContentDetector` detects `.caiExtension` at priority 0 (highest)
 3. `ActionGenerator` shows single "Install Extension" action
 4. `ExtensionParser` parses YAML via Yams into `ParsedExtension` (.shortcut or .destination)
 5. Trust confirmation view shows name, type, author (clickable GitHub link), and webhook URL warning
 6. On confirm: saves as `CaiShortcut` or `OutputDestination`, with duplicate detection by name
+7. **applescript/shell blocked** from clipboard install for security (error shown in result view)
 
 ### Extension Types
 - **prompt** → `CaiShortcut` with `.prompt` type
 - **url** → `CaiShortcut` with `.url` type
-- **webhook** → `OutputDestination` with `.webhook` type
+- **shell** → `CaiShortcut` with `.shell` type (curated repo only, requires confirmation)
+- **webhook** → `OutputDestination` with `.webhook` type (HTTPS required)
 - **deeplink** → `OutputDestination` with `.deeplink` type
-- **applescript/shell** → blocked from clipboard install for security
+- **applescript** → blocked entirely (must be created locally in Settings)
+
+### Extension Repo Structure
+```
+cai-extensions/
+├── index.json                    # Array of ExtensionEntry objects
+├── extensions/
+│   ├── base64-decode/extension.yaml
+│   ├── explain-like-im-five/extension.yaml
+│   └── ...
+└── .github/workflows/validate.yml  # PR validation (YAML format, HTTPS check, author match)
+```
 
 ### YAML Format
 ```yaml
@@ -278,6 +318,14 @@ Tests are in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ test cases coveri
 3. Initialize in `CaiSettings.init()`
 4. Add UI in `SettingsView.swift`
 
+### Adding a New Community Extension
+
+1. Create `extensions/<slug>/extension.yaml` in the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo
+2. Add entry to `index.json` with slug, name, description, author, version, icon, type, tags
+3. YAML must start with `# cai-extension` header
+4. PR validation runs automatically (checks format, HTTPS for webhooks, author match)
+5. Shell extensions require extra security review
+
 ### Building a DMG
 
 See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
@@ -306,12 +354,17 @@ See `_docs/dmg-assets/BUILD-DMG.md` for the full process. Key points:
 - **OCR uses Apple Vision framework** — `OCRService` extracts text from clipboard images on-device (~50-200ms, Neural Engine). Supports all macOS image formats via `NSImage(pasteboard:)`. Background OCR in `ClipboardHistory.checkForChanges()` gives parity with text entries. Image entries use `photo` SF Symbol (macOS 13+ compatible, NOT `doc.text.image` which is macOS 14+).
 - **Extension detection uses `# cai-extension` header** — `ContentDetector` checks `trimmed.hasPrefix("# cai-extension")` at priority 0 (before URL). `ExtensionParser` strips the header line before passing to Yams. AppleScript/shell types are blocked from clipboard install — they must be created locally in Settings.
 - **Image file detection checks file URLs** — `extractTextFromClipboardImageFile()` uses `NSPasteboard.readObjects(forClasses: [NSURL.self])` with `urlReadingFileURLsOnly: true` to detect Finder-copied image files. Filters by image extensions (png, jpg, jpeg, tiff, etc.). Runs before text check in priority chain.
+- **Shell shortcut escaping differs from shell destinations** — Shell shortcuts use `escapeForShell()` which only escapes single quotes inside the text (`'` → `'\''`), without wrapping in quotes (the template controls quoting, e.g. `echo '{{result}}'`). Shell destinations in `OutputDestinationService` wrap the entire text in single quotes.
+- **ExtensionParser `allowShell` parameter** — `parse(yaml, allowShell: true)` is used when installing from the curated repo (reviewed extensions). `allowShell: false` (default) is used for clipboard-based installs. Shell type throws `ParseError.blockedType` when not allowed.
+- **Webhook URLs must use HTTPS** — `ExtensionParser` enforces `url.lowercased().hasPrefix("https://")` for webhook destinations. The GitHub Actions validator in `cai-extensions` also checks this on PRs.
+- **ExtensionService uses `reloadIgnoringLocalCacheData`** — Prevents URLSession from serving stale cached responses from `raw.githubusercontent.com`. Both `fetchIndex()` and `fetchYAML()` set this cache policy.
 
 ## Dependencies
 
 - **HotKey** (SPM): [soffes/HotKey](https://github.com/soffes/HotKey) v0.2.0+ — global keyboard shortcut
 - **Sentry** (SPM): [getsentry/sentry-cocoa](https://github.com/getsentry/sentry-cocoa) v8.0.0+ — opt-in crash reporting
 - **Yams** (SPM): [jpsim/Yams](https://github.com/jpsim/Yams) v5.0.0+ — YAML parsing for community extensions
+- **Sparkle** (SPM): [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle) — auto-update framework
 - **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8022 — local LLM inference engine (ARM64 macOS)
 - **macOS 13.0+** (Ventura) deployment target
 
