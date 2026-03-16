@@ -75,6 +75,7 @@ struct ExtensionParser {
         case missingField(String)
         case unsupportedType(String)
         case blockedType(String)
+        case insecureURL
 
         var errorDescription: String? {
             switch self {
@@ -86,6 +87,8 @@ struct ExtensionParser {
                 return "Unknown extension type: \(type)"
             case .blockedType(let type):
                 return "\(type) extensions must be created locally for security"
+            case .insecureURL:
+                return "Webhook URL must use HTTPS"
             }
         }
     }
@@ -167,6 +170,10 @@ struct ExtensionParser {
 
         guard let url = webhookDict["url"] as? String, !url.isEmpty else {
             throw ParseError.missingField("webhook.url")
+        }
+
+        guard url.lowercased().hasPrefix("https://") else {
+            throw ParseError.insecureURL
         }
 
         let method = webhookDict["method"] as? String ?? "POST"

@@ -1264,11 +1264,11 @@ struct ActionListWindow: View {
                 showExtensionConfirm = true
             }
         } catch {
-            NotificationCenter.default.post(
-                name: .caiShowToast,
-                object: nil,
-                userInfo: ["message": error.localizedDescription]
-            )
+            let message = error.localizedDescription
+            isFollowUpEnabled = false
+            showResultView(title: "Install Extension") {
+                throw NSError(domain: "Cai", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+            }
         }
     }
 
