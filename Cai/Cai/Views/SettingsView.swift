@@ -216,8 +216,8 @@ struct SettingsView: View {
                     }
 
                     // MARK: Shortcuts & Extensions Group
-                    settingsGroup(title: "Shortcuts & Extensions") {
-                        navRow(label: "Shortcuts", count: settings.shortcuts.count, action: onShowShortcuts)
+                    settingsGroup(title: "Custom Actions & Extensions") {
+                        navRow(label: "Custom Actions", count: settings.shortcuts.count, action: onShowShortcuts)
 
                         settingsDivider
 

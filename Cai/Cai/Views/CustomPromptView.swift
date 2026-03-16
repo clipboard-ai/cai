@@ -25,12 +25,12 @@ struct CustomPromptView: View {
         VStack(spacing: 0) {
             // Header
             HStack(spacing: 10) {
-                Image(systemName: "bolt.fill")
+                Image(systemName: clipboardText.isEmpty ? "bubble.left.fill" : "bolt.fill")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.caiPrimary)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Custom Action")
+                    Text(clipboardText.isEmpty ? "New Chat" : "Ask AI")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.caiTextPrimary)
 

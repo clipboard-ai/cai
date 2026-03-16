@@ -19,18 +19,18 @@ struct ActionGenerator {
         var items: [ActionItem] = []
         var shortcut = 1
 
-        // Custom Action (⌘1) — always first, for ALL content types
+        // Ask AI (⌘1) — always first, for ALL content types
         items.append(ActionItem(
             id: "custom_prompt",
-            title: "Custom Action",
-            subtitle: text.isEmpty ? "Ask AI anything" : "Ask AI anything about this content",
+            title: "Ask AI",
+            subtitle: text.isEmpty ? "Ask anything" : "Ask AI anything about this content",
             icon: "bolt.fill",
             shortcut: shortcut,
             type: .customPrompt
         ))
         shortcut += 1
 
-        // Empty clipboard — only Custom Action + destinations (user can also Cmd+N or Cmd+0)
+        // Empty clipboard — only Ask AI + destinations (user can also Cmd+N or Cmd+0)
         if detection.type == .empty {
             // Skip straight to destinations below
             let destinationStart = items.last?.shortcut ?? 0

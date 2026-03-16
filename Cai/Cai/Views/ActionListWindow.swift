@@ -600,7 +600,7 @@ struct ActionListWindow: View {
                             Text("No matches")
                                 .font(.system(size: 13))
                                 .foregroundColor(.caiTextSecondary)
-                            Text("Try a different search or create a shortcut in Settings")
+                            Text("Try a different search or create a custom action in Settings")
                                 .font(.system(size: 11))
                                 .foregroundColor(.caiTextSecondary.opacity(0.6))
                         }

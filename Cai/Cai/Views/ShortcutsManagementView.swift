@@ -24,13 +24,13 @@ struct ShortcutsManagementView: View {
                     .foregroundColor(.caiPrimary)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Custom Shortcuts")
+                    Text("Custom Actions")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.caiTextPrimary)
 
                     Text(settings.shortcuts.isEmpty
                          ? "Type to filter actions when Cai is open"
-                         : "\(settings.shortcuts.count) shortcut\(settings.shortcuts.count == 1 ? "" : "s")")
+                         : "\(settings.shortcuts.count) custom action\(settings.shortcuts.count == 1 ? "" : "s")")
                         .font(.system(size: 11))
                         .foregroundColor(.caiTextSecondary)
                 }
@@ -76,7 +76,7 @@ struct ShortcutsManagementView: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "plus.circle.fill")
                                     .font(.system(size: 12, weight: .medium))
-                                Text("Add Shortcut")
+                                Text("Add Action")
                                     .font(.system(size: 12, weight: .medium))
                             }
                             .foregroundColor(.caiPrimary)
@@ -117,10 +117,10 @@ struct ShortcutsManagementView: View {
             Image(systemName: "bolt.circle")
                 .font(.system(size: 28))
                 .foregroundColor(.caiTextSecondary.opacity(0.4))
-            Text("No shortcuts yet")
+            Text("No custom actions yet")
                 .font(.system(size: 13))
                 .foregroundColor(.caiTextSecondary)
-            Text("Create shortcuts for prompts you use often\nor URLs you search frequently")
+            Text("Create custom actions for prompts you use often\nor URLs you search frequently")
                 .font(.system(size: 11))
                 .foregroundColor(.caiTextSecondary.opacity(0.6))
                 .multilineTextAlignment(.center)
