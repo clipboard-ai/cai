@@ -48,7 +48,7 @@ class WindowController: NSObject, ObservableObject {
     private var cachedPassThrough: Bool = false
     private var cachedDismissTime: Date?
     private var cacheCleanupTimer: Timer?
-    private static let resumeTimeout: TimeInterval = 10
+    private static let resumeTimeout: TimeInterval = 5
 
     /// Layout constants
     private static let windowWidth: CGFloat = 540
@@ -118,6 +118,7 @@ class WindowController: NSObject, ObservableObject {
            Date().timeIntervalSince(dismissTime) < Self.resumeTimeout {
             print("♻️ Resuming previous window (dismissed \(String(format: "%.1f", Date().timeIntervalSince(dismissTime)))s ago)")
             self.window = cached
+            self.currentText = cachedText  // Restore so next hideWindow() can re-cache it
             Self.passThrough = cachedPassThrough
             self.cachedWindow = nil
             self.cachedText = nil
