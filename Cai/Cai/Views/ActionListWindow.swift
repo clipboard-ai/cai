@@ -38,6 +38,10 @@ struct ActionListWindow: View {
     @State private var showExtensionConfirm: Bool = false
     @State private var pendingExtension: ExtensionParser.ParsedExtension?
 
+    // MCP form state
+    @State private var showMCPForm: Bool = false
+    @State private var activeMCPActionConfig: MCPActionConfig?
+
     @State private var availableModels: [String] = []
     @State private var showModelPicker: Bool = false
     @State private var currentModelName: String = ""
@@ -49,6 +53,7 @@ struct ActionListWindow: View {
     /// Which screen is currently active — used for keyboard routing
     private var activeScreen: Screen {
         if showExtensionConfirm { return .extensionConfirm }
+        if showMCPForm { return .mcpForm }
         if showExtensionBrowser { return .extensionBrowser }
         if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
@@ -60,7 +65,7 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm
+        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -139,6 +144,19 @@ struct ActionListWindow: View {
 
             if showExtensionConfirm, let ext = pendingExtension {
                 extensionConfirmView(ext)
+            } else if showMCPForm, let config = activeMCPActionConfig {
+                MCPFormView(
+                    actionConfig: config,
+                    clipboardText: text,
+                    sourceApp: sourceApp,
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showMCPForm = false
+                            activeMCPActionConfig = nil
+                        }
+                    },
+                    onDismiss: onDismiss
+                )
             } else if showDestinationsManagement {
                 DestinationsManagementView(
                     onBack: {
@@ -271,6 +289,7 @@ struct ActionListWindow: View {
         .onChange(of: showCustomPrompt) { _ in updateFilterInputFlag() }
         .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
         .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
+        .onChange(of: showMCPForm) { _ in updateFilterInputFlag() }
         .onChange(of: showExtensionConfirm) { _ in updateFilterInputFlag() }
         .onChange(of: showFollowUpInput) { _ in updateFilterInputFlag() }
         .onReceive(NotificationCenter.default.publisher(for: .caiShowSettings)) { _ in
@@ -285,6 +304,8 @@ struct ActionListWindow: View {
                 showShortcutsManagement = false
                 showDestinationsManagement = false
                 showExtensionConfirm = false
+                showMCPForm = false
+                activeMCPActionConfig = nil
                 withAnimation(.easeInOut(duration: 0.15)) {
                     showSettings = true
                 }
@@ -318,6 +339,11 @@ struct ActionListWindow: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showExtensionConfirm = false
                 pendingExtension = nil
+            }
+        } else if showMCPForm {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showMCPForm = false
+                activeMCPActionConfig = nil
             }
         } else if showExtensionBrowser {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -463,6 +489,9 @@ struct ActionListWindow: View {
             copyAndDismissWithToast()
         case .extensionConfirm:
             confirmInstallExtension()
+        case .mcpForm:
+            // Enter on success screen → dismiss
+            onDismiss()
         default:
             break
         }
@@ -526,8 +555,17 @@ struct ActionListWindow: View {
     }
 
     private func handleCmdEnter() {
+        if activeScreen == .mcpForm {
+            submitMCPForm()
+            return
+        }
         guard activeScreen == .result, showFollowUpInput else { return }
         submitFollowUp()
+    }
+
+    private func submitMCPForm() {
+        // Find the MCPFormView and call submit — we pass it via a notification
+        NotificationCenter.default.post(name: .caiMCPFormSubmit, object: nil)
     }
 
     private func submitFollowUp() {
@@ -1074,6 +1112,15 @@ struct ActionListWindow: View {
 
         case .installExtension:
             installExtension()
+
+        case .mcpAction(let configId):
+            if let config = MCPConfigManager.shared.availableActions.first(where: { $0.id == configId }) {
+                selectionState.filterText = ""
+                activeMCPActionConfig = config
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showMCPForm = true
+                }
+            }
 
         case .outputDestination(let destination):
             executeDestination(destination, with: text)

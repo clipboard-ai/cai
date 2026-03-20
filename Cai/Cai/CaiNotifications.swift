@@ -26,4 +26,5 @@ extension NSNotification.Name {
 
     // MCP
     static let caiMCPStatusChanged = NSNotification.Name("CaiMCPStatusChanged")  // userInfo["configId": UUID]
+    static let caiMCPFormSubmit = NSNotification.Name("CaiMCPFormSubmit")         // Triggers form submission
 }
