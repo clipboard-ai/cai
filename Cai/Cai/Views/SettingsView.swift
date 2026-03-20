@@ -9,6 +9,7 @@ struct SettingsView: View {
     var onShowShortcuts: (() -> Void)? = nil
     var onShowDestinations: (() -> Void)? = nil
     var onShowExtensions: (() -> Void)? = nil
+    var onShowConnectors: (() -> Void)? = nil
     var onShowModelSetup: (() -> Void)? = nil
 
     /// LLM connection status — checked each time settings opens.
@@ -226,6 +227,11 @@ struct SettingsView: View {
                         settingsDivider
 
                         navRow(label: "Community Extensions", count: settings.installedExtensions.count, action: onShowExtensions)
+                    }
+
+                    // MARK: Connectors Group
+                    settingsGroup(title: "Connectors") {
+                        connectorsNavRow
                     }
 
                     // MARK: General Group
@@ -470,6 +476,23 @@ struct SettingsView: View {
                 row
             }
         }
+    }
+
+    // MARK: - Connectors Row
+
+    @ObservedObject private var mcpConfigManager = MCPConfigManager.shared
+
+    private var connectorsNavRow: some View {
+        let configs = mcpConfigManager.serverConfigs
+        let connected = configs.filter { mcpConfigManager.serverStatuses[$0.id]?.isConnected == true }.count
+        let enabled = configs.filter(\.isEnabled).count
+
+        return navRow(
+            label: "MCP Servers",
+            count: connected,
+            total: enabled,
+            action: onShowConnectors
+        )
     }
 
     // MARK: - Update Badge

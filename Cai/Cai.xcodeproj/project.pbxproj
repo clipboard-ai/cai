@@ -12,6 +12,7 @@
 		CAI00184 /* MCPConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00185 /* MCPConfigManager.swift */; };
 		CAI00186 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CAI00171 /* MCP */; };
 		CAI00188 /* MCPFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00189 /* MCPFormView.swift */; };
+		CAI00190 /* ConnectorsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00191 /* ConnectorsSettingsView.swift */; };
 		CAI00001 /* CaiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00002 /* CaiApp.swift */; };
 		CAI00003 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00004 /* AppDelegate.swift */; };
 		CAI00007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CAI00008 /* Assets.xcassets */; };
@@ -82,6 +83,7 @@
 		CAI00183 /* MCPClientService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPClientService.swift; sourceTree = "<group>"; };
 		CAI00185 /* MCPConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPConfigManager.swift; sourceTree = "<group>"; };
 		CAI00189 /* MCPFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPFormView.swift; sourceTree = "<group>"; };
+		CAI00191 /* ConnectorsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorsSettingsView.swift; sourceTree = "<group>"; };
 		CAI00002 /* CaiApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaiApp.swift; sourceTree = "<group>"; };
 		CAI00004 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		CAI00008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -223,6 +225,7 @@
 				CAI00165 /* GitHubIcon.swift */,
 				CAI00170 /* ExtensionBrowserView.swift */,
 				CAI00189 /* MCPFormView.swift */,
+				CAI00191 /* ConnectorsSettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -435,6 +438,7 @@
 				CAI00182 /* MCPClientService.swift in Sources */,
 				CAI00184 /* MCPConfigManager.swift in Sources */,
 				CAI00188 /* MCPFormView.swift in Sources */,
+				CAI00190 /* ConnectorsSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

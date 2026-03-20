@@ -20,6 +20,7 @@ struct ActionListWindow: View {
     @State private var showShortcutsManagement: Bool = false
     @State private var showDestinationsManagement: Bool = false
     @State private var showExtensionBrowser: Bool = false
+    @State private var showConnectors: Bool = false
     @StateObject private var historySelectionState = SelectionState()
     @StateObject private var customPromptState = CustomPromptState()
     @ObservedObject private var settings = CaiSettings.shared
@@ -54,6 +55,7 @@ struct ActionListWindow: View {
     private var activeScreen: Screen {
         if showExtensionConfirm { return .extensionConfirm }
         if showMCPForm { return .mcpForm }
+        if showConnectors { return .connectors }
         if showExtensionBrowser { return .extensionBrowser }
         if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
@@ -65,7 +67,7 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm
+        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -171,6 +173,15 @@ struct ActionListWindow: View {
                     onBack: {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             showExtensionBrowser = false
+                            showSettings = true
+                        }
+                    }
+                )
+            } else if showConnectors {
+                ConnectorsSettingsView(
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showConnectors = false
                             showSettings = true
                         }
                     }
@@ -290,6 +301,7 @@ struct ActionListWindow: View {
         .onChange(of: showShortcutsManagement) { _ in updateFilterInputFlag() }
         .onChange(of: showDestinationsManagement) { _ in updateFilterInputFlag() }
         .onChange(of: showMCPForm) { _ in updateFilterInputFlag() }
+        .onChange(of: showConnectors) { _ in updateFilterInputFlag() }
         .onChange(of: showExtensionConfirm) { _ in updateFilterInputFlag() }
         .onChange(of: showFollowUpInput) { _ in updateFilterInputFlag() }
         .onReceive(NotificationCenter.default.publisher(for: .caiShowSettings)) { _ in
@@ -305,6 +317,7 @@ struct ActionListWindow: View {
                 showDestinationsManagement = false
                 showExtensionConfirm = false
                 showMCPForm = false
+                showConnectors = false
                 activeMCPActionConfig = nil
                 withAnimation(.easeInOut(duration: 0.15)) {
                     showSettings = true
@@ -344,6 +357,11 @@ struct ActionListWindow: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showMCPForm = false
                 activeMCPActionConfig = nil
+            }
+        } else if showConnectors {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showConnectors = false
+                showSettings = true
             }
         } else if showExtensionBrowser {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -696,6 +714,12 @@ struct ActionListWindow: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = false
                         showExtensionBrowser = true
+                    }
+                },
+                onShowConnectors: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = false
+                        showConnectors = true
                     }
                 },
                 onShowModelSetup: {
