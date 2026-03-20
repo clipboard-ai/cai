@@ -42,6 +42,7 @@ struct ActionListWindow: View {
     // MCP form state
     @State private var showMCPForm: Bool = false
     @State private var activeMCPActionConfig: MCPActionConfig?
+    @State private var mcpFormInstanceId: UUID = UUID()  // Forces fresh @State on each open
 
     @State private var availableModels: [String] = []
     @State private var showModelPicker: Bool = false
@@ -159,6 +160,7 @@ struct ActionListWindow: View {
                     },
                     onDismiss: onDismiss
                 )
+                .id(mcpFormInstanceId) // Unique per open — forces fresh @State so .task re-fires
             } else if showDestinationsManagement {
                 DestinationsManagementView(
                     onBack: {
@@ -354,6 +356,8 @@ struct ActionListWindow: View {
                 pendingExtension = nil
             }
         } else if showMCPForm {
+            // If a picker dropdown is open, MCPFormView handles ESC internally — skip navigation
+            if MCPFormView.pickerDropdownOpen { return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 showMCPForm = false
                 activeMCPActionConfig = nil
@@ -1141,6 +1145,7 @@ struct ActionListWindow: View {
             if let config = MCPConfigManager.shared.availableActions.first(where: { $0.id == configId }) {
                 selectionState.filterText = ""
                 activeMCPActionConfig = config
+                mcpFormInstanceId = UUID()  // Fresh view identity — resets all @State
                 withAnimation(.easeInOut(duration: 0.15)) {
                     showMCPForm = true
                 }

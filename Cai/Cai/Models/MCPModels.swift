@@ -1,5 +1,14 @@
 import Foundation
 
+// MARK: - MCP Provider Type
+
+/// Known MCP provider types. Used for action config dispatch instead of fragile name matching.
+enum MCPProviderType: String, Codable, Equatable {
+    case github
+    case linear
+    case custom                         // User-added servers with no built-in action config
+}
+
 // MARK: - MCP Server Configuration
 
 /// Configuration for a remote MCP server connection.
@@ -7,6 +16,7 @@ import Foundation
 struct MCPServerConfig: Codable, Identifiable, Equatable {
     let id: UUID
     var name: String                    // "GitHub", "Linear"
+    var providerType: MCPProviderType   // Determines action config dispatch
     var transport: MCPTransport
     var authType: MCPAuthType
     var authKeychainKey: String?        // Keychain key for token: "mcp_github_pat"
@@ -18,6 +28,7 @@ struct MCPServerConfig: Codable, Identifiable, Equatable {
     init(
         id: UUID = UUID(),
         name: String,
+        providerType: MCPProviderType = .custom,
         transport: MCPTransport,
         authType: MCPAuthType = .none,
         authKeychainKey: String? = nil,
@@ -28,6 +39,7 @@ struct MCPServerConfig: Codable, Identifiable, Equatable {
     ) {
         self.id = id
         self.name = name
+        self.providerType = providerType
         self.transport = transport
         self.authType = authType
         self.authKeychainKey = authKeychainKey
@@ -93,8 +105,33 @@ struct MCPActionConfig: Identifiable {
     let confirmLabel: String            // "Create Issue" / "Send Message"
     let llmPrompt: MCPLLMPrompt?        // Optional LLM generation for text fields
     let fields: [MCPFieldConfig]        // Ordered list of form fields
-    let submitTool: String              // MCP tool to call on confirm: "create_issue"
-    let submitMapping: [String: String] // Maps field keys to tool params
+    let submitTool: String              // MCP tool to call on confirm: "issue_write"
+    let submitMapping: [String: String] // Maps field keys to tool params: "title": "{{title}}"
+    var staticArguments: [String: String] // Always-sent params: "method": "create"
+
+    init(
+        id: String,
+        serverConfigId: UUID,
+        displayName: String,
+        icon: String,
+        confirmLabel: String,
+        llmPrompt: MCPLLMPrompt?,
+        fields: [MCPFieldConfig],
+        submitTool: String,
+        submitMapping: [String: String],
+        staticArguments: [String: String] = [:]
+    ) {
+        self.id = id
+        self.serverConfigId = serverConfigId
+        self.displayName = displayName
+        self.icon = icon
+        self.confirmLabel = confirmLabel
+        self.llmPrompt = llmPrompt
+        self.fields = fields
+        self.submitTool = submitTool
+        self.submitMapping = submitMapping
+        self.staticArguments = staticArguments
+    }
 }
 
 /// LLM prompt configuration for auto-generating field values.
@@ -134,12 +171,25 @@ enum MCPFieldType: String {
     case textarea                       // Multi-line TextEditor
     case picker                         // Dropdown (single select)
     case multiselect                    // Toggleable chips (multi select)
+    case searchablePicker               // Type-to-search with dropdown results
 }
 
 enum MCPFieldSource {
     case userInput                      // User types freely
     case llm                           // LLM generates initial value, user can edit
     case mcp(toolName: String)          // Options fetched via MCP tool call
+    case mcpPrefetch(                   // Pre-fetch all options on init, filter locally on type
+        contextTool: String,            // Tool to get user info: "get_me"
+        contextPath: String,            // JSON key: "login"
+        orgsTool: String?,              // Tool to get orgs: "get_teams" (nil = skip)
+        searchTool: String,             // Tool to search: "search_repositories"
+        queryParam: String              // Param name: "query"
+    )
+    case mcpDependentOn(               // Fetches options when a parent field value changes
+        parentField: String,            // Field id to watch: "repo"
+        toolName: String,               // Tool to call: "list_labels"
+        argumentMapping: [String: String] // Maps tool params to parent value parts: "owner": "{{parent:owner}}"
+    )
 }
 
 // MARK: - Picker Option
@@ -219,6 +269,8 @@ struct MCPConfigFile: Codable {
     var mcpServers: [String: MCPServerConfigJSON]
 
     struct MCPServerConfigJSON: Codable {
+        var id: String                  // Persisted UUID string — stable across launches
+        var providerType: String?       // "github", "linear", "custom" (nil → infer from name)
         var transport: TransportJSON
         var auth: AuthJSON?
         var headers: [String: String]?

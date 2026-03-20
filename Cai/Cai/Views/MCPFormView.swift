@@ -13,6 +13,10 @@ struct MCPFormView: View {
     let onBack: () -> Void
     let onDismiss: () -> Void
 
+    /// Static flag so ActionListWindow can check if a picker dropdown is open
+    /// (ESC should close dropdown first, not navigate back).
+    static var pickerDropdownOpen = false
+
     // MARK: - Form State
 
     /// Current field values, keyed by field id ("title", "body", "repo", etc.)
@@ -23,14 +27,24 @@ struct MCPFormView: View {
     @State private var pickerOptions: [String: [MCPPickerOption]] = [:]
     /// Loading states per field
     @State private var fieldLoading: [String: Bool] = [:]
+    /// Search text for searchable picker fields (local filter)
+    @State private var searchText: [String: String] = [:]
+    /// Whether the searchable picker dropdown is expanded
+    @State private var searchExpanded: [String: Bool] = [:]
+    /// All pre-fetched options for searchable pickers (unfiltered)
+    @State private var allPickerOptions: [String: [MCPPickerOption]] = [:]
+    /// Tracks last parent value used to fetch dependent fields (avoids redundant fetches)
+    @State private var lastDependentParent: [String: String] = [:]
 
     // MARK: - Overall State
 
     @State private var isConnecting: Bool = false
     @State private var isSubmitting: Bool = false
+    @State private var hasSubmitted: Bool = false
     @State private var isGeneratingLLM: Bool = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var resultURL: String?
 
     @FocusState private var focusedField: String?
 
@@ -57,9 +71,32 @@ struct MCPFormView: View {
         }
         .onDisappear {
             WindowController.passThrough = false
+            Self.pickerDropdownOpen = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .caiMCPFormSubmit)) { _ in
             Task { await submit() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .caiEscPressed)) { _ in
+            // If a picker dropdown is open, close it instead of letting ActionListWindow navigate back
+            if closeAnyOpenDropdown() {
+                return
+            }
+        }
+        .onChange(of: searchExpanded) { newValue in
+            Self.pickerDropdownOpen = newValue.values.contains(true)
+        }
+        .onChange(of: fieldValues) { newValues in
+            // Fetch options for fields that depend on a parent field value
+            for field in actionConfig.fields {
+                guard case .mcpDependentOn(let parentField, _, _) = field.source else { continue }
+                let parentValue = newValues[parentField] ?? ""
+                let lastParent = lastDependentParent[field.id] ?? ""
+                // Only re-fetch when parent actually changed to a non-empty value
+                if !parentValue.isEmpty && parentValue != lastParent {
+                    lastDependentParent[field.id] = parentValue
+                    Task { await fetchDependentOptions(for: field) }
+                }
+            }
         }
     }
 
@@ -117,6 +154,29 @@ struct MCPFormView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.caiTextPrimary)
                 .multilineTextAlignment(.center)
+
+            if let url = resultURL, let link = URL(string: url) {
+                Button(action: {
+                    NSWorkspace.shared.open(link)
+                    // Close Cai after opening the link
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        onDismiss()
+                    }
+                }) {
+                    Text("View ticket ↗")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.caiPrimary)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+            }
+
             Spacer()
 
             KeyboardHint(key: "↩", label: "Dismiss")
@@ -124,26 +184,39 @@ struct MCPFormView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(16)
+        .onAppear {
+            // Success screen has no text editors — disable passThrough so Enter dismisses
+            WindowController.passThrough = false
+        }
     }
 
     // MARK: - Form Content
 
     private var formContent: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(actionConfig.fields) { field in
-                        fieldView(for: field)
-                    }
-
-                    if let error = errorMessage {
-                        Text(error)
-                            .font(.system(size: 11))
-                            .foregroundColor(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+            ZStack {
+                // Click-outside overlay — dismiss any open dropdown
+                if searchExpanded.values.contains(true) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { closeAnyOpenDropdown() }
                 }
-                .padding(16)
+
+                ScrollView {
+                    VStack(spacing: 12) {
+                        ForEach(actionConfig.fields) { field in
+                            fieldView(for: field)
+                        }
+
+                        if let error = errorMessage {
+                            Text(error)
+                                .font(.system(size: 11))
+                                .foregroundColor(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(16)
+                }
             }
 
             Divider()
@@ -185,6 +258,8 @@ struct MCPFormView: View {
                 pickerField(for: field)
             case .multiselect:
                 multiselectField(for: field)
+            case .searchablePicker:
+                searchablePickerField(for: field)
             }
         }
     }
@@ -258,12 +333,27 @@ struct MCPFormView: View {
     private func multiselectField(for field: MCPFieldConfig) -> some View {
         let options = pickerOptions[field.id] ?? []
         let selected = multiSelectValues[field.id] ?? []
+        // Check if this field depends on a parent and whether the parent has a value
+        let parentEmpty: Bool = {
+            if case .mcpDependentOn(let parentField, _, _) = field.source {
+                return (fieldValues[parentField] ?? "").isEmpty
+            }
+            return false
+        }()
 
         return Group {
             if options.isEmpty && fieldLoading[field.id] != true {
-                Text("No options available")
+                let hint: String = {
+                    if parentEmpty, case .mcpDependentOn(let parentField, _, _) = field.source {
+                        let parentLabel = actionConfig.fields.first(where: { $0.id == parentField })?.label ?? parentField
+                        return "Select a \(parentLabel.lowercased()) first"
+                    }
+                    return "No options available"
+                }()
+                Text(hint)
                     .font(.system(size: 12))
                     .foregroundColor(.caiTextSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
             } else {
                 // Horizontally wrapping chips
@@ -292,6 +382,339 @@ struct MCPFormView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func searchablePickerField(for field: MCPFieldConfig) -> some View {
+        let allOptions = allPickerOptions[field.id] ?? []
+        let isExpanded = searchExpanded[field.id] == true
+        let currentValue = fieldValues[field.id] ?? ""
+        let query = (searchText[field.id] ?? "").lowercased()
+
+        // Local filter — instant, no MCP calls
+        let filteredOptions = query.isEmpty ? allOptions : allOptions.filter {
+            $0.label.lowercased().contains(query) || $0.id.lowercased().contains(query)
+        }
+
+        return VStack(alignment: .leading, spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.caiSurface.opacity(0.6))
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.caiDivider.opacity(0.5), lineWidth: 0.5)
+
+                if isExpanded {
+                    TextField("Filter repositories…", text: Binding(
+                        get: { searchText[field.id] ?? "" },
+                        set: { searchText[field.id] = $0 }
+                    ))
+                    .font(.system(size: 13))
+                    .foregroundColor(.caiTextPrimary)
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .focused($focusedField, equals: field.id)
+                } else {
+                    HStack {
+                        Text(currentValue.isEmpty ? "Select repository…" : currentValue)
+                            .font(.system(size: 13))
+                            .foregroundColor(currentValue.isEmpty ? .caiTextSecondary : .caiTextPrimary)
+                        Spacer()
+                        if fieldLoading[field.id] == true {
+                            ProgressView()
+                                .scaleEffect(0.5)
+                                .frame(width: 12, height: 12)
+                        } else {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10))
+                                .foregroundColor(.caiTextSecondary)
+                        }
+                    }
+                    .padding(8)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        searchExpanded[field.id] = true
+                        searchText[field.id] = ""
+                        focusedField = field.id
+                    }
+                }
+            }
+            .frame(height: 32)
+
+            // Dropdown results
+            if isExpanded {
+                VStack(spacing: 0) {
+                    if fieldLoading[field.id] == true && allOptions.isEmpty {
+                        HStack {
+                            ProgressView().scaleEffect(0.5)
+                            Text("Loading repositories…")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiTextSecondary)
+                        }
+                        .padding(8)
+                    } else if filteredOptions.isEmpty {
+                        Text(query.isEmpty ? "No repositories found" : "No match for \"\(searchText[field.id] ?? "")\"")
+                            .font(.system(size: 11))
+                            .foregroundColor(.caiTextSecondary)
+                            .padding(8)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(filteredOptions) { option in
+                                    Button(action: {
+                                        fieldValues[field.id] = option.id
+                                        searchExpanded[field.id] = false
+                                        saveLastUsed(field: field.id, value: option.id)
+                                    }) {
+                                        HStack {
+                                            Text(option.label)
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.caiTextPrimary)
+                                            Spacer()
+                                            if option.id == currentValue {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 10))
+                                                    .foregroundColor(.caiPrimary)
+                                            }
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 6)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .background(option.id == currentValue ? Color.caiPrimary.opacity(0.1) : Color.clear)
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 150)
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.caiSurface)
+                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.caiDivider.opacity(0.5), lineWidth: 0.5)
+                )
+            }
+        }
+    }
+
+    /// Pre-fetches all options for searchable picker fields (runs in parallel with LLM generation).
+    /// Flow: get_me → username, get_teams → org names, then search user + each org in parallel.
+    private func prefetchSearchableOptions(serverConfig: MCPServerConfig) async {
+        for field in actionConfig.fields where field.type == .searchablePicker {
+            guard case .mcpPrefetch(let contextTool, let contextPath, let orgsTool, let searchTool, let queryParam) = field.source else { continue }
+
+            await MainActor.run { fieldLoading[field.id] = true }
+            let serverId = serverConfig.id
+
+            do {
+                // Step 1: Get username
+                let contextResponse = try await MCPClientService.shared.callTool(
+                    serverConfigId: serverId,
+                    toolName: contextTool,
+                    arguments: [:]
+                )
+                let username = Self.extractJSONValue(from: contextResponse, key: contextPath) ?? ""
+                print("🔍 MCP prefetch user: \(username)")
+
+                // Step 2: Discover orgs via get_teams (optional — fails gracefully)
+                var orgNames: Set<String> = []
+                if let orgsTool = orgsTool {
+                    do {
+                        let teamsResponse = try await MCPClientService.shared.callTool(
+                            serverConfigId: serverId,
+                            toolName: orgsTool,
+                            arguments: [:]
+                        )
+                        // Extract org names from teams response (array of objects with "org" or "organization" field)
+                        orgNames = Self.extractOrgNames(from: teamsResponse)
+                        print("🔍 MCP prefetch orgs: \(orgNames.sorted())")
+                    } catch {
+                        print("⚠️ MCP get_teams failed (may need read:org scope): \(error)")
+                    }
+                }
+
+                // Step 3: Build queries — user:xxx + org:xxx for each org
+                var queries = ["user:\(username)"]
+                for org in orgNames {
+                    queries.append("org:\(org)")
+                }
+
+                // Step 4: Run all queries in parallel and merge results
+                var allOptions: [MCPPickerOption] = []
+                var seenIds: Set<String> = []
+
+                // Use callTool directly (not fetchOptions) — the cache keys by toolName only,
+                // which breaks when the same tool is called with different arguments (user: vs org:).
+                await withTaskGroup(of: [MCPPickerOption].self) { group in
+                    for query in queries {
+                        group.addTask {
+                            do {
+                                print("🔍 MCP prefetch query: \(query)")
+                                let response = try await MCPClientService.shared.callTool(
+                                    serverConfigId: serverId,
+                                    toolName: searchTool,
+                                    arguments: [queryParam: .string(query)]
+                                )
+                                let options = MCPClientService.shared.parsePickerOptions(from: response, toolName: searchTool)
+                                print("🔍 MCP prefetch returned \(options.count) repos for: \(query)")
+                                return options
+                            } catch {
+                                print("⚠️ MCP prefetch query failed (\(query)): \(error)")
+                                return []
+                            }
+                        }
+                    }
+
+                    for await options in group {
+                        for option in options where !seenIds.contains(option.id) {
+                            seenIds.insert(option.id)
+                            allOptions.append(option)
+                        }
+                    }
+                }
+
+                allOptions.sort { $0.label.lowercased() < $1.label.lowercased() }
+                print("🔍 MCP prefetch total: \(allOptions.count) unique repos")
+
+                await MainActor.run {
+                    allPickerOptions[field.id] = allOptions
+                    fieldLoading[field.id] = false
+                }
+            } catch {
+                print("⚠️ MCP prefetch failed: \(error)")
+                await MainActor.run { fieldLoading[field.id] = false }
+            }
+        }
+    }
+
+    /// Extracts unique organization names from a get_teams MCP response.
+    /// Handles both array-of-teams and nested formats.
+    static func extractOrgNames(from response: String) -> Set<String> {
+        var orgs: Set<String> = []
+        guard let data = response.data(using: .utf8) else { return orgs }
+
+        // Try as JSON array of team objects
+        if let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            for team in array {
+                if let org = team["org"] as? String { orgs.insert(org) }
+                else if let org = team["organization"] as? String { orgs.insert(org) }
+                else if let orgObj = team["organization"] as? [String: Any],
+                        let login = orgObj["login"] as? String { orgs.insert(login) }
+                else if let org = team["org"] as? [String: Any],
+                        let login = org["login"] as? String { orgs.insert(login) }
+            }
+        }
+        // Try as top-level object with teams array
+        else if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let teams = json["teams"] as? [[String: Any]] {
+                for team in teams {
+                    if let org = team["org"] as? String { orgs.insert(org) }
+                    else if let orgObj = team["organization"] as? [String: Any],
+                            let login = orgObj["login"] as? String { orgs.insert(login) }
+                }
+            }
+        }
+
+        // Also try to find org names via regex as fallback (e.g., "org":"clipboard-ai")
+        if orgs.isEmpty {
+            let pattern = "\"(?:org|organization)\"\\s*:\\s*\"([^\"]+)\""
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let matches = regex.matches(in: response, range: NSRange(response.startIndex..., in: response))
+                for match in matches {
+                    if let range = Range(match.range(at: 1), in: response) {
+                        orgs.insert(String(response[range]))
+                    }
+                }
+            }
+        }
+
+        return orgs
+    }
+
+    // MARK: - Dependent Field Fetching
+
+    /// Fetches options for a field that depends on another field's value (e.g., labels after repo selection).
+    private func fetchDependentOptions(for field: MCPFieldConfig) async {
+        guard case .mcpDependentOn(let parentField, let toolName, let argumentMapping) = field.source else { return }
+        let parentValue = fieldValues[parentField] ?? ""
+        guard !parentValue.isEmpty else { return }
+
+        await MainActor.run {
+            fieldLoading[field.id] = true
+            // Clear previous options and selections when parent changes
+            pickerOptions[field.id] = []
+            multiSelectValues[field.id] = []
+        }
+
+        // Resolve argument mapping — supports {{parent:owner}} and {{parent:name}} for "owner/repo" splitting
+        var arguments: [String: Value] = [:]
+        for (param, template) in argumentMapping {
+            let resolved: String
+            if template.contains("{{parent:owner}}") {
+                let parts = parentValue.split(separator: "/", maxSplits: 1)
+                resolved = parts.count >= 1 ? String(parts[0]) : parentValue
+            } else if template.contains("{{parent:name}}") {
+                let parts = parentValue.split(separator: "/", maxSplits: 1)
+                resolved = parts.count >= 2 ? String(parts[1]) : parentValue
+            } else if template.contains("{{parent}}") {
+                resolved = parentValue
+            } else {
+                resolved = template
+            }
+            arguments[param] = .string(resolved)
+        }
+
+        do {
+            // Bypass cache — dependent fields have dynamic arguments (e.g., different repo → different labels)
+            let response = try await MCPClientService.shared.callTool(
+                serverConfigId: actionConfig.serverConfigId,
+                toolName: toolName,
+                arguments: arguments
+            )
+            let options = MCPClientService.shared.parsePickerOptions(from: response, toolName: toolName)
+            await MainActor.run {
+                pickerOptions[field.id] = options
+                fieldLoading[field.id] = false
+            }
+        } catch {
+            print("⚠️ MCP dependent fetch failed (\(toolName)): \(error)")
+            await MainActor.run { fieldLoading[field.id] = false }
+        }
+    }
+
+    // MARK: - Dropdown Dismiss
+
+    /// Closes any open searchable picker dropdown. Returns true if one was closed.
+    @discardableResult
+    private func closeAnyOpenDropdown() -> Bool {
+        for field in actionConfig.fields where field.type == .searchablePicker {
+            if searchExpanded[field.id] == true {
+                searchExpanded[field.id] = false
+                Self.pickerDropdownOpen = false
+                return true
+            }
+        }
+        return false
+    }
+
+    // MARK: - Last Used Persistence
+
+    private static func lastUsedKey(actionId: String, fieldId: String) -> String {
+        "mcp_lastUsed_\(actionId)_\(fieldId)"
+    }
+
+    private func saveLastUsed(field: String, value: String) {
+        let key = Self.lastUsedKey(actionId: actionConfig.id, fieldId: field)
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
+    private func loadLastUsed(field: String) -> String? {
+        let key = Self.lastUsedKey(actionId: actionConfig.id, fieldId: field)
+        return UserDefaults.standard.string(forKey: key)
     }
 
     private func toggleMultiSelect(field: String, optionId: String) {
@@ -351,13 +774,28 @@ struct MCPFormView: View {
             await MainActor.run { isConnecting = false }
         }
 
-        // Step 2: Generate LLM content for fields that need it
-        if let llmPrompt = actionConfig.llmPrompt {
-            await generateLLMFields(prompt: llmPrompt)
+        // Step 2: Load last-used values for searchable picker fields
+        for field in actionConfig.fields where field.type == .searchablePicker {
+            if let lastUsed = loadLastUsed(field: field.id) {
+                await MainActor.run { fieldValues[field.id] = lastUsed }
+            }
         }
 
-        // Step 3: Fetch picker options from MCP
-        await fetchPickerOptions(serverConfig: serverConfig)
+        // Step 3: Run LLM generation + searchable picker prefetch + regular picker fetch IN PARALLEL
+        await withTaskGroup(of: Void.self) { group in
+            // LLM generation
+            if let llmPrompt = actionConfig.llmPrompt {
+                group.addTask { await generateLLMFields(prompt: llmPrompt) }
+            }
+
+            // Prefetch searchable picker repos (parallel with LLM)
+            group.addTask { await prefetchSearchableOptions(serverConfig: serverConfig) }
+
+            // Regular picker/multiselect options
+            group.addTask { await fetchPickerOptions(serverConfig: serverConfig) }
+
+            await group.waitForAll()
+        }
 
         // Focus first text field
         if let firstTextField = actionConfig.fields.first(where: { $0.type == .text }) {
@@ -409,24 +847,47 @@ struct MCPFormView: View {
     }
 
     private func parseLLMResponse(_ response: String) -> (title: String, body: String) {
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Strip markdown fences that small models commonly produce
+        trimmed = trimmed.replacingOccurrences(of: "```", with: "")
+        // Strip bold/italic markdown from TITLE prefix ("**TITLE:**" → "TITLE:")
+        trimmed = trimmed.replacingOccurrences(of: "**TITLE:**", with: "TITLE:")
+        trimmed = trimmed.replacingOccurrences(of: "**TITLE**:", with: "TITLE:")
+        trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var title: String
+        var body: String
 
         // Try "TITLE: <title>\n\n<body>" format
         if trimmed.hasPrefix("TITLE:") {
             let afterTitle = trimmed.dropFirst("TITLE:".count).trimmingCharacters(in: .whitespaces)
             if let range = afterTitle.range(of: "\n\n") {
-                let title = String(afterTitle[afterTitle.startIndex..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let body = String(afterTitle[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                return (title, body)
+                title = String(afterTitle[afterTitle.startIndex..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                body = String(afterTitle[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                // No body separator — everything is title
+                title = afterTitle
+                body = ""
             }
-            // No body separator — everything is title
-            return (afterTitle, "")
+        } else {
+            // Fallback: first line = title, rest = body
+            let lines = trimmed.components(separatedBy: "\n")
+            title = lines.first ?? trimmed
+            body = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        // Fallback: first line = title, rest = body
-        let lines = trimmed.components(separatedBy: "\n")
-        let title = lines.first ?? trimmed
-        let body = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Enforce title length limit — truncate gracefully at word boundary
+        let maxTitleLength = 200
+        if title.count > maxTitleLength {
+            let truncated = String(title.prefix(maxTitleLength))
+            if let lastSpace = truncated.lastIndex(of: " ") {
+                title = String(truncated[..<lastSpace])
+            } else {
+                title = truncated
+            }
+        }
+
         return (title, body)
     }
 
@@ -434,24 +895,29 @@ struct MCPFormView: View {
         // Fetch options for all picker/multiselect fields in parallel
         await withTaskGroup(of: (String, [MCPPickerOption]).self) { group in
             for field in actionConfig.fields {
-                guard field.type == .picker || field.type == .multiselect else { continue }
-                guard case .mcp(let toolName) = field.source else { continue }
+                // searchablePicker fields search on-demand — skip them here
+                guard (field.type == .picker || field.type == .multiselect) && field.type != .searchablePicker else { continue }
 
                 let fieldId = field.id
 
-                await MainActor.run { fieldLoading[fieldId] = true }
-
-                group.addTask {
-                    do {
-                        let options = try await MCPClientService.shared.fetchOptions(
-                            serverConfigId: serverConfig.id,
-                            toolName: toolName,
-                            arguments: [:]
-                        )
-                        return (fieldId, options)
-                    } catch {
-                        return (fieldId, [])
+                switch field.source {
+                case .mcp(let toolName):
+                    await MainActor.run { fieldLoading[fieldId] = true }
+                    group.addTask {
+                        do {
+                            let options = try await MCPClientService.shared.fetchOptions(
+                                serverConfigId: serverConfig.id,
+                                toolName: toolName,
+                                arguments: [:]
+                            )
+                            return (fieldId, options)
+                        } catch {
+                            return (fieldId, [])
+                        }
                     }
+
+                default:
+                    continue
                 }
             }
 
@@ -464,10 +930,20 @@ struct MCPFormView: View {
         }
     }
 
+    /// Extracts a value from a JSON string by key (top-level only).
+    static func extractJSONValue(from jsonText: String, key: String) -> String? {
+        guard let data = jsonText.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = json[key] else { return nil }
+        if let str = value as? String { return str }
+        if let num = value as? Int { return String(num) }
+        return nil
+    }
+
     // MARK: - Submit
 
     func submit() async {
-        guard !isSubmitting else { return }
+        guard !isSubmitting && !hasSubmitted else { return }
 
         // Validate required fields
         for field in actionConfig.fields where field.required {
@@ -488,13 +964,23 @@ struct MCPFormView: View {
 
         await MainActor.run {
             isSubmitting = true
+            hasSubmitted = true
             errorMessage = nil
         }
 
         // Build tool arguments from submitMapping, converting to MCP Value types
         var arguments: [String: Value] = [:]
+
+        // Static arguments first (e.g., "method": "create")
+        for (key, value) in actionConfig.staticArguments {
+            arguments[key] = .string(value)
+        }
+
+        // Dynamic arguments from field values
         for (toolParam, template) in actionConfig.submitMapping {
             let resolved = resolveTemplate(template)
+            // Skip empty optional values
+            guard !resolved.isEmpty else { continue }
             // Arrays (comma-separated) → JSON array value
             if resolved.contains(",") && isArrayField(template) {
                 let items = resolved.components(separatedBy: ",").map { Value.string($0.trimmingCharacters(in: .whitespaces)) }
@@ -511,30 +997,49 @@ struct MCPFormView: View {
                 arguments: arguments
             )
 
+            // Check for error indicators in response (some servers don't set isError)
+            if let errorMsg = Self.extractErrorMessage(from: result) {
+                await MainActor.run {
+                    isSubmitting = false
+                    hasSubmitted = false  // Allow retry
+                    errorMessage = errorMsg
+                }
+                return
+            }
+
+            // Extract URL from response (GitHub returns JSON with html_url, or plain URL)
+            let extractedURL = Self.extractURL(from: result)
+
             await MainActor.run {
                 isSubmitting = false
+                resultURL = extractedURL
                 successMessage = "Created successfully"
+                // Disable passThrough immediately so Enter key dismisses
+                WindowController.passThrough = false
                 CrashReportingService.shared.addBreadcrumb(
                     category: "mcp",
                     message: "Tool call succeeded: \(actionConfig.submitTool)"
                 )
             }
 
-            // Copy result URL or text to clipboard if available
-            if !result.isEmpty {
+            // Copy result URL (or full response) to clipboard
+            if let url = extractedURL {
+                SystemActions.copyToClipboard(url)
+            } else if !result.isEmpty {
                 SystemActions.copyToClipboard(result)
             }
         } catch {
             await MainActor.run {
                 isSubmitting = false
+                hasSubmitted = false  // Allow retry
                 errorMessage = error.localizedDescription
             }
         }
     }
 
-    /// Resolves a template like "{{title}}" or "{{labels}}" from field values.
+    /// Resolves a template like "{{title}}", "{{labels}}", or "{{repo:owner}}" from field values.
+    /// Supports `:owner` / `:name` suffixes to split slash-separated values (e.g., "owner/repo").
     private func resolveTemplate(_ template: String) -> String {
-        // Match {{fieldId}} or {{fieldId.property}}
         var result = template
         let pattern = "\\{\\{([^}]+)\\}\\}"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return template }
@@ -545,8 +1050,25 @@ struct MCPFormView: View {
             let key = String(template[range])
             let replacement: String
 
-            // Check multiselect first
-            if let selected = multiSelectValues[key], !selected.isEmpty {
+            // Handle {{field:owner}} and {{field:name}} for "owner/repo" splitting
+            if key.contains(":") {
+                let parts = key.split(separator: ":", maxSplits: 1)
+                let fieldId = String(parts[0])
+                let accessor = String(parts[1])
+                let rawValue = fieldValues[fieldId] ?? ""
+                let slashParts = rawValue.split(separator: "/", maxSplits: 1)
+
+                switch accessor {
+                case "owner":
+                    replacement = slashParts.count >= 1 ? String(slashParts[0]) : rawValue
+                case "name":
+                    replacement = slashParts.count >= 2 ? String(slashParts[1]) : rawValue
+                default:
+                    replacement = rawValue
+                }
+            }
+            // Check multiselect
+            else if let selected = multiSelectValues[key], !selected.isEmpty {
                 replacement = selected.sorted().joined(separator: ",")
             } else {
                 replacement = fieldValues[key] ?? ""
@@ -558,6 +1080,55 @@ struct MCPFormView: View {
         }
 
         return result
+    }
+
+    /// Checks MCP response for error indicators (e.g., GitHub returns {"message": "Not Found"}).
+    /// Returns a user-friendly error message if detected, nil if the response looks successful.
+    static func extractErrorMessage(from text: String) -> String? {
+        guard let data = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        // GitHub API error pattern: {"message": "Not Found", "status": "404"}
+        if let message = json["message"] as? String {
+            let status: String? = (json["status"] as? String) ?? (json["status"] as? Int).map { "\($0)" }
+            let lowerMsg = message.lowercased()
+            if lowerMsg.contains("not found") || lowerMsg.contains("forbidden") ||
+               lowerMsg.contains("unauthorized") || lowerMsg.contains("error") ||
+               lowerMsg.contains("denied") || lowerMsg.contains("permission") {
+                return status != nil ? "\(message) (\(status!))" : message
+            }
+        }
+
+        // Generic error field
+        if let error = json["error"] as? String {
+            return error
+        }
+
+        return nil
+    }
+
+    /// Extracts a URL from MCP tool response text.
+    /// Tries JSON parsing first (html_url, url fields), then regex fallback.
+    static func extractURL(from text: String) -> String? {
+        // Try JSON — GitHub MCP returns {"html_url": "https://...", ...}
+        if let data = text.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            // Prefer html_url (GitHub), then url
+            if let url = json["html_url"] as? String { return url }
+            if let url = json["url"] as? String, url.hasPrefix("https://") { return url }
+        }
+
+        // Regex fallback — find first HTTPS URL in text
+        let pattern = "https://[^\\s\"',\\]\\)>]+"
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let range = Range(match.range, in: text) {
+            return String(text[range])
+        }
+
+        return nil
     }
 
     /// Checks if a template references a multiselect field (which produces comma-separated values).

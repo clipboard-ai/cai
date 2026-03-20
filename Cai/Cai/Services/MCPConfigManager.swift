@@ -72,19 +72,18 @@ class MCPConfigManager: ObservableObject {
 
     // MARK: - Action Config Registry
 
-    /// Returns action configs for a given server based on its name/type.
-    /// Hardcoded for known servers (GitHub, Linear). Generic fallback for unknown servers.
+    /// Returns action configs for a given server based on its provider type.
+    /// Hardcoded for known providers (GitHub, Linear). No actions for custom servers yet.
     /// Future: move to JSON file or derive from MCP tool schemas.
     func actionConfigs(for server: MCPServerConfig) -> [MCPActionConfig] {
-        let name = server.name.lowercased()
-
-        if name.contains("github") {
+        switch server.providerType {
+        case .github:
             return [Self.githubCreateIssue(serverConfigId: server.id)]
-        } else if name.contains("linear") {
+        case .linear:
             return [Self.linearCreateIssue(serverConfigId: server.id)]
+        case .custom:
+            return []
         }
-
-        return []
     }
 
     // MARK: - GitHub Action Configs
@@ -110,21 +109,30 @@ class MCPConfigManager: ObservableObject {
                 bodyField: "body"
             ),
             fields: [
+                MCPFieldConfig(id: "repo", label: "Repository", type: .searchablePicker, source: .mcpPrefetch(
+                    contextTool: "get_me",
+                    contextPath: "login",
+                    orgsTool: "get_teams",
+                    searchTool: "search_repositories",
+                    queryParam: "query"
+                ), required: true),
                 MCPFieldConfig(id: "title", label: "Title", type: .text, source: .llm, required: true),
                 MCPFieldConfig(id: "body", label: "Description", type: .textarea, source: .llm, required: true),
-                MCPFieldConfig(id: "repo", label: "Repository", type: .picker, source: .mcp(toolName: "list_repositories"), required: true),
-                MCPFieldConfig(id: "labels", label: "Labels", type: .multiselect, source: .mcp(toolName: "list_labels")),
-                MCPFieldConfig(id: "assignee", label: "Assignee", type: .picker, source: .mcp(toolName: "list_assignees")),
+                MCPFieldConfig(id: "labels", label: "Labels", type: .multiselect, source: .mcpDependentOn(
+                    parentField: "repo",
+                    toolName: "list_label",
+                    argumentMapping: ["owner": "{{parent:owner}}", "repo": "{{parent:name}}"]
+                )),
             ],
-            submitTool: "create_issue",
+            submitTool: "issue_write",
             submitMapping: [
-                "owner": "{{repo.owner}}",
-                "repo": "{{repo.name}}",
+                "owner": "{{repo:owner}}",   // Splits "owner/repo" → "owner"
+                "repo": "{{repo:name}}",     // Splits "owner/repo" → "repo"
                 "title": "{{title}}",
                 "body": "{{body}}",
                 "labels": "{{labels}}",
-                "assignees": "{{assignee}}",
-            ]
+            ],
+            staticArguments: ["method": "create"]
         )
     }
 
@@ -190,6 +198,7 @@ class MCPConfigManager: ObservableObject {
             return
         }
 
+        var needsSave = false
         serverConfigs = configFile.mcpServers.map { (key, json) in
             let transport: MCPTransport
             if json.transport.type == "remote", let url = json.transport.url {
@@ -200,25 +209,52 @@ class MCPConfigManager: ObservableObject {
 
             let authType: MCPAuthType = MCPAuthType(rawValue: json.auth?.type ?? "none") ?? .none
 
+            // Use persisted UUID, or migrate old configs without an id field
+            let id: UUID
+            if let stored = UUID(uuidString: json.id) {
+                id = stored
+            } else {
+                id = UUID()
+                needsSave = true // Re-save to persist the generated UUID
+            }
+
+            // Use persisted providerType, or infer from name for old configs
+            let providerType: MCPProviderType
+            if let stored = json.providerType, let type = MCPProviderType(rawValue: stored) {
+                providerType = type
+            } else {
+                providerType = Self.inferProviderType(from: key)
+                needsSave = true
+            }
+
             return MCPServerConfig(
-                id: UUID(uuidString: key) ?? UUID(),
-                name: key.capitalized,
+                id: id,
+                name: key,
+                providerType: providerType,
                 transport: transport,
                 authType: authType,
                 authKeychainKey: json.auth?.keychainKey,
                 isEnabled: true,
-                icon: iconForServer(key),
+                icon: iconForServer(providerType),
                 autoConnect: false,
                 headers: json.headers ?? [:]
             )
         }
+
+        // Re-save to persist migrated UUIDs/providerTypes
+        if needsSave { saveConfig() }
     }
 
     func saveConfig() {
         var servers: [String: MCPConfigFile.MCPServerConfigJSON] = [:]
 
         for config in serverConfigs {
-            let key = config.name.lowercased()
+            // Use name as key, dedup by appending UUID suffix if name already taken
+            var key = config.name
+            if servers[key] != nil {
+                key = "\(config.name)_\(config.id.uuidString.prefix(8))"
+            }
+
             let transportJSON: MCPConfigFile.MCPServerConfigJSON.TransportJSON
             switch config.transport {
             case .remote(let url):
@@ -230,6 +266,8 @@ class MCPConfigManager: ObservableObject {
                 : nil
 
             servers[key] = MCPConfigFile.MCPServerConfigJSON(
+                id: config.id.uuidString,
+                providerType: config.providerType.rawValue,
                 transport: transportJSON,
                 auth: authJSON,
                 headers: config.headers.isEmpty ? nil : config.headers
@@ -238,7 +276,9 @@ class MCPConfigManager: ObservableObject {
 
         let configFile = MCPConfigFile(mcpServers: servers)
 
-        if let data = try? JSONEncoder().encode(configFile) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(configFile) {
             try? data.write(to: configFileURL, options: .atomic)
         }
     }
@@ -292,17 +332,19 @@ class MCPConfigManager: ObservableObject {
             MCPServerConfig(
                 id: githubId,
                 name: "GitHub",
+                providerType: .github,
                 transport: .remote(url: "https://api.githubcopilot.com/mcp/"),
                 authType: .bearerToken,
                 authKeychainKey: "mcp_github_pat",
                 isEnabled: true,
                 icon: "plus.circle",
                 autoConnect: false,
-                headers: ["X-MCP-Toolsets": "issues"]
+                headers: ["X-MCP-Toolsets": "issues,repos,labels,context"]
             ),
             MCPServerConfig(
                 id: linearId,
                 name: "Linear",
+                providerType: .linear,
                 transport: .remote(url: "https://mcp.linear.app/mcp"),
                 authType: .bearerToken,
                 authKeychainKey: "mcp_linear_apikey",
@@ -315,11 +357,19 @@ class MCPConfigManager: ObservableObject {
         saveConfig()
     }
 
-    private func iconForServer(_ name: String) -> String {
-        switch name.lowercased() {
-        case "github": return "plus.circle"
-        case "linear": return "diamond"
-        default: return "puzzlepiece.extension"
+    /// Infers provider type from server name (for migrating old configs without providerType).
+    static func inferProviderType(from name: String) -> MCPProviderType {
+        let lower = name.lowercased()
+        if lower.contains("github") { return .github }
+        if lower.contains("linear") { return .linear }
+        return .custom
+    }
+
+    private func iconForServer(_ providerType: MCPProviderType) -> String {
+        switch providerType {
+        case .github: return "plus.circle"
+        case .linear: return "diamond"
+        case .custom: return "puzzlepiece.extension"
         }
     }
 }

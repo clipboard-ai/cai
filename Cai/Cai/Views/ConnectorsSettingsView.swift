@@ -344,17 +344,19 @@ struct ConnectorsSettingsView: View {
     }
 
     private func apiKeyLabel(for config: MCPServerConfig) -> String {
-        let name = config.name.lowercased()
-        if name.contains("github") { return "GitHub Personal Access Token" }
-        if name.contains("linear") { return "Linear API Key" }
-        return "API Key"
+        switch config.providerType {
+        case .github: return "GitHub Personal Access Token"
+        case .linear: return "Linear API Key"
+        case .custom: return "API Key"
+        }
     }
 
     private func apiKeyPlaceholder(for config: MCPServerConfig) -> String {
-        let name = config.name.lowercased()
-        if name.contains("github") { return "ghp_..." }
-        if name.contains("linear") { return "lin_api_..." }
-        return "Enter API key"
+        switch config.providerType {
+        case .github: return "ghp_..."
+        case .linear: return "lin_api_..."
+        case .custom: return "Enter API key"
+        }
     }
 
     private func saveAPIKey(for config: MCPServerConfig) {

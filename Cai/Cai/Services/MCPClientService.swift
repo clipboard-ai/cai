@@ -62,6 +62,7 @@ actor MCPClientService {
                 tools: tools
             )
 
+            print("🔌 MCP \(config.name) connected — \(tools.count) tools: \(tools.map { $0.name }.joined(separator: ", "))")
             setStatus(config.id, .connected(toolCount: tools.count))
 
         } catch {
@@ -83,10 +84,26 @@ actor MCPClientService {
     }
 
     /// Disconnects all servers. Called from AppDelegate.applicationWillTerminate().
+    /// Uses a timeout to prevent blocking app quit if a server hangs.
     func disconnectAll() async {
-        for (id, connection) in connections {
-            await connection.client.disconnect()
-            setStatus(id, .disconnected)
+        await withTaskGroup(of: Void.self) { group in
+            for (id, connection) in connections {
+                let connId = id
+                let client = connection.client
+                group.addTask {
+                    // 2s timeout per disconnect — don't block app termination
+                    _ = try? await withThrowingTaskGroup(of: Void.self) { inner in
+                        inner.addTask { await client.disconnect() }
+                        inner.addTask {
+                            try await Task.sleep(nanoseconds: 2_000_000_000)
+                            throw CancellationError()
+                        }
+                        _ = try await inner.next()
+                        inner.cancelAll()
+                    }
+                }
+                setStatus(connId, .disconnected)
+            }
         }
         connections.removeAll()
     }
@@ -147,7 +164,14 @@ actor MCPClientService {
             throw MCPError.invalidResponse
         }
 
-        return textParts.joined(separator: "\n")
+        let responseText = textParts.joined(separator: "\n")
+
+        // Check MCP isError flag — server explicitly marked this as a failed tool call
+        if result.isError == true {
+            throw MCPError.toolCallFailed(responseText)
+        }
+
+        return responseText
     }
 
     // MARK: - Metadata (Cached)
@@ -238,7 +262,7 @@ actor MCPClientService {
 
     /// Parses tool response JSON into picker options.
     /// Handles common patterns: arrays of objects with id/name, arrays of strings, etc.
-    private func parsePickerOptions(from jsonText: String, toolName: String) -> [MCPPickerOption] {
+    nonisolated func parsePickerOptions(from jsonText: String, toolName: String) -> [MCPPickerOption] {
         guard let data = jsonText.data(using: .utf8) else { return [] }
 
         // Try parsing as JSON
@@ -250,20 +274,40 @@ actor MCPClientService {
                 .map { MCPPickerOption(id: $0, label: $0) }
         }
 
-        // Array of objects with id/name or name/full_name
+        // Unwrap: bare array [...] or dict with a single array value {"labels": [...], ...}
+        var rootArray: [[String: Any]]?
+
         if let array = json as? [[String: Any]] {
-            return array.compactMap { obj in
-                let id = (obj["id"] as? String)
-                    ?? (obj["id"] as? Int).map(String.init)
-                    ?? (obj["full_name"] as? String)
+            rootArray = array
+        } else if let dict = json as? [String: Any] {
+            // Auto-unwrap: find the first value that is an array of objects
+            // Handles {"items": [...]}, {"labels": [...]}, {"teams": [...]}, etc.
+            for (_, value) in dict {
+                if let nested = value as? [[String: Any]] {
+                    rootArray = nested
+                    break
+                }
+            }
+        }
+
+        if let array = rootArray {
+            let options = array.compactMap { obj -> MCPPickerOption? in
+                // ID: prefer human-readable names (used as submit values by most MCP tools)
+                // full_name first for repos ("owner/repo"), then name for labels/teams,
+                // then fall back to machine IDs
+                let id = (obj["full_name"] as? String)
                     ?? (obj["name"] as? String)
-                let label = (obj["name"] as? String)
-                    ?? (obj["full_name"] as? String)
+                    ?? (obj["id"] as? String)
+                    ?? (obj["id"] as? Int).map(String.init)
+                // Display label: prefer full_name for repos ("owner/repo"), then name, title, label
+                let label = (obj["full_name"] as? String)
+                    ?? (obj["name"] as? String)
                     ?? (obj["title"] as? String)
                     ?? (obj["label"] as? String)
                 guard let id = id, let label = label else { return nil }
                 return MCPPickerOption(id: id, label: label)
             }
+            if !options.isEmpty { return options }
         }
 
         // Array of strings
@@ -271,6 +315,8 @@ actor MCPClientService {
             return array.map { MCPPickerOption(id: $0, label: $0) }
         }
 
+        // Single object with a text description (MCP tools sometimes return plain text in JSON)
+        print("⚠️ MCP parsePickerOptions: unrecognized format for \(toolName): \(String(jsonText.prefix(200)))")
         return []
     }
 
