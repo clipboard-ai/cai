@@ -11,8 +11,17 @@ class MCPTransportClient {
     let requestModifier: ((URLRequest) -> URLRequest)?
 
     private let session: URLSession
-    private var requestId: Int = 0
+    private let requestIdLock = NSLock()
+    private var _requestId: Int = 0
     private var sessionId: String?
+
+    /// Thread-safe incrementing request ID for JSON-RPC messages.
+    private var nextRequestId: Int {
+        requestIdLock.lock()
+        defer { requestIdLock.unlock() }
+        _requestId += 1
+        return _requestId
+    }
 
     init(endpoint: URL, requestModifier: ((URLRequest) -> URLRequest)? = nil) {
         self.endpoint = endpoint
@@ -118,8 +127,7 @@ class MCPTransportClient {
 
         // Notifications (no response expected) don't have an id per JSON-RPC spec
         if expectResponse {
-            requestId += 1
-            body["id"] = requestId
+            body["id"] = nextRequestId
         }
 
         if !params.isEmpty {

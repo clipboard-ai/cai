@@ -1143,6 +1143,14 @@ struct ActionListWindow: View {
 
         case .mcpAction(let configId):
             if let config = MCPConfigManager.shared.availableActions.first(where: { $0.id == configId }) {
+                // If API key not configured, redirect to Connectors setup
+                if !MCPConfigManager.shared.isServerConfigured(config.serverConfigId) {
+                    selectionState.filterText = ""
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showConnectors = true
+                    }
+                    return
+                }
                 selectionState.filterText = ""
                 activeMCPActionConfig = config
                 mcpFormInstanceId = UUID()  // Fresh view identity — resets all @State

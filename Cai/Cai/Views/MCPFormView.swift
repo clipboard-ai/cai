@@ -124,9 +124,8 @@ struct MCPFormView: View {
 
     private var headerView: some View {
         HStack(spacing: 10) {
-            Image(systemName: actionConfig.icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.caiPrimary)
+            connectorIcon(name: actionConfig.icon)
+                .frame(width: 16, height: 16)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(actionConfig.displayName)
@@ -370,7 +369,10 @@ struct MCPFormView: View {
 
             // View in browser
             if let url = result.url, let link = URL(string: url) {
-                Button(action: { NSWorkspace.shared.open(link) }) {
+                Button(action: {
+                    NSWorkspace.shared.open(link)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { onDismiss() }
+                }) {
                     Image(systemName: "arrow.up.right.square")
                         .font(.system(size: 10))
                         .foregroundColor(.caiPrimary)
@@ -656,7 +658,7 @@ struct MCPFormView: View {
                     arguments: [:]
                 )
                 let username = Self.extractJSONValue(from: contextResponse, key: contextPath) ?? ""
-                print("🔍 MCP prefetch user: \(username)")
+
 
                 // Step 2: Discover orgs via get_teams (optional — fails gracefully)
                 var orgNames: Set<String> = []
@@ -669,7 +671,7 @@ struct MCPFormView: View {
                         )
                         // Extract org names from teams response (array of objects with "org" or "organization" field)
                         orgNames = Self.extractOrgNames(from: teamsResponse)
-                        print("🔍 MCP prefetch orgs: \(orgNames.sorted())")
+
                     } catch {
                         print("⚠️ MCP get_teams failed (may need read:org scope): \(error)")
                     }
@@ -691,14 +693,12 @@ struct MCPFormView: View {
                     for query in queries {
                         group.addTask {
                             do {
-                                print("🔍 MCP prefetch query: \(query)")
                                 let response = try await MCPClientService.shared.callTool(
                                     serverConfigId: serverId,
                                     toolName: searchTool,
                                     arguments: [queryParam: query]
                                 )
                                 let options = MCPClientService.shared.parsePickerOptions(from: response, toolName: searchTool)
-                                print("🔍 MCP prefetch returned \(options.count) repos for: \(query)")
                                 return options
                             } catch {
                                 print("⚠️ MCP prefetch query failed (\(query)): \(error)")
@@ -716,7 +716,7 @@ struct MCPFormView: View {
                 }
 
                 allOptions.sort { $0.label.lowercased() < $1.label.lowercased() }
-                print("🔍 MCP prefetch total: \(allOptions.count) unique repos")
+
 
                 await MainActor.run {
                     allPickerOptions[field.id] = allOptions
@@ -1116,7 +1116,10 @@ struct MCPFormView: View {
             if config?.providerType == .github {
                 // GitHub: search syntax with repo: and is:issue qualifiers
                 let repo = fieldValues["repo"] ?? ""
-                guard !repo.isEmpty else { return }
+                guard !repo.isEmpty else {
+                    await MainActor.run { isSearchingDuplicates = false }
+                    return
+                }
                 arguments["query"] = "\(query) repo:\(repo) is:issue"
             } else {
                 // Linear and others: use query param + extra arguments from config
@@ -1502,5 +1505,23 @@ struct FlowLayout: Layout {
         }
 
         return (CGSize(width: maxX, height: y + rowHeight), positions)
+    }
+}
+
+// MARK: - Connector Icon Helper
+
+extension MCPFormView {
+    @ViewBuilder
+    private func connectorIcon(name: String) -> some View {
+        switch name {
+        case "github.logo":
+            GitHubIcon(color: .caiPrimary)
+        case "linear.logo":
+            LinearIcon(color: .caiPrimary)
+        default:
+            Image(systemName: name)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.caiPrimary)
+        }
     }
 }

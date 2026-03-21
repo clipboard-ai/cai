@@ -94,16 +94,18 @@ struct ConnectorsSettingsView: View {
     // MARK: - Status Summary
 
     private var connectorStatusSummary: some View {
-        let connected = configManager.serverConfigs.filter { config in
-            configManager.serverStatuses[config.id]?.isConnected == true
+        let configured = configManager.serverConfigs.filter { config in
+            guard config.isEnabled else { return false }
+            guard let key = config.authKeychainKey else { return config.authType == .none }
+            return KeychainHelper.get(forKey: key) != nil
         }.count
-        let total = configManager.serverConfigs.filter(\.isEnabled).count
+        let total = configManager.serverConfigs.count
 
         return Group {
             if total > 0 {
-                Text("\(connected)/\(total)")
+                Text("\(configured)/\(total)")
                     .font(.system(size: 11))
-                    .foregroundColor(connected > 0 ? .green : .caiTextSecondary)
+                    .foregroundColor(configured > 0 ? .green : .caiTextSecondary)
             }
         }
     }

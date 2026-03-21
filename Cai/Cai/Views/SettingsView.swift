@@ -329,21 +329,38 @@ struct SettingsView: View {
                         .accessibilityLabel("Send crash reports to help improve Cai")
                     }
 
-                    // Feedback link (outside groups)
-                    Button(action: {
-                        if let url = URL(string: "mailto:hi@getcai.app?subject=Cai%20Feedback") {
-                            NSWorkspace.shared.open(url)
+                    // Feedback & bug links
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            if let url = URL(string: "https://github.com/clipboard-ai/cai/discussions") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bubble.left.and.text.bubble.right")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("Feedback")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
                         }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "envelope")
-                                .font(.system(size: 10, weight: .medium))
-                            Text("Send Feedback")
-                                .font(.system(size: 11))
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            if let url = URL(string: "https://github.com/clipboard-ai/cai/issues") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "ladybug")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("Report Bug")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundColor(.caiTextSecondary.opacity(0.5))
                         }
-                        .foregroundColor(.caiTextSecondary.opacity(0.5))
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)

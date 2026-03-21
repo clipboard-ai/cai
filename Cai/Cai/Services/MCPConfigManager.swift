@@ -62,16 +62,21 @@ class MCPConfigManager: ObservableObject {
     var availableActions: [MCPActionConfig] {
         var actions: [MCPActionConfig] = []
         for config in serverConfigs where config.isEnabled {
-            // Only show actions if auth is configured (API key in Keychain)
-            if config.authType == .bearerToken,
-               let key = config.authKeychainKey,
-               KeychainHelper.get(forKey: key) == nil {
-                continue
-            }
+            // Show actions regardless of API key — if key is missing,
+            // clicking the action navigates to Connectors setup instead.
             let configs = actionConfigs(for: config)
             actions.append(contentsOf: configs)
         }
         return actions
+    }
+
+    /// Checks if a server has its API key configured in Keychain.
+    func isServerConfigured(_ serverConfigId: UUID) -> Bool {
+        guard let config = serverConfigs.first(where: { $0.id == serverConfigId }) else { return false }
+        if config.authType == .bearerToken, let key = config.authKeychainKey {
+            return KeychainHelper.get(forKey: key) != nil
+        }
+        return true // No auth required
     }
 
     // MARK: - Action Config Registry
