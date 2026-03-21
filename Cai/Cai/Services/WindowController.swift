@@ -48,7 +48,7 @@ class WindowController: NSObject, ObservableObject {
     private var cachedPassThrough: Bool = false
     private var cachedDismissTime: Date?
     private var cacheCleanupTimer: Timer?
-    private static let resumeTimeout: TimeInterval = 5
+    private static let resumeTimeout: TimeInterval = 10
 
     /// Layout constants
     private static let windowWidth: CGFloat = 540
