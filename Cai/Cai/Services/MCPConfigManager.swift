@@ -97,13 +97,21 @@ class MCPConfigManager: ObservableObject {
             confirmLabel: "Create Issue",
             llmPrompt: MCPLLMPrompt(
                 systemPrompt: """
-                Generate a concise bug ticket from the user's selected text.
-                Output EXACTLY in this format (no markdown fences, no extra text):
+                Create a ticket from the user's text. Classify as bug, feature, or task.
+                Output EXACTLY in this format — no markdown fences, no extra text:
 
-                TITLE: <one-line title, max 80 chars>
+                TITLE: <specific, actionable title under 80 chars>
 
-                <detailed description — include root cause analysis if the text is a stack trace, \
-                relevant context, and suggested next steps>
+                <2-4 sentence description. For bugs: what fails, where, and likely cause. \
+                For features: what and why. For tasks: scope and acceptance criteria.>
+
+                Example input: "TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156"
+                Example output:
+                TITLE: TypeError in Dashboard.jsx when data array is undefined
+
+                A TypeError occurs at Dashboard.jsx:156 when calling .map() on an undefined value. \
+                Likely caused by missing data initialization or a failed API response returning null \
+                instead of an empty array. Add a null check or default to [] before mapping.
                 """,
                 titleField: "title",
                 bodyField: "body"
@@ -159,13 +167,21 @@ class MCPConfigManager: ObservableObject {
             confirmLabel: "Create Issue",
             llmPrompt: MCPLLMPrompt(
                 systemPrompt: """
-                Generate a concise ticket from the user's selected text.
-                Output EXACTLY in this format (no markdown fences, no extra text):
+                Create a ticket from the user's text. Classify as bug, feature, or task.
+                Output EXACTLY in this format — no markdown fences, no extra text:
 
-                TITLE: <one-line title, max 80 chars>
+                TITLE: <specific, actionable title under 80 chars>
 
-                <detailed description — include root cause analysis if the text is a stack trace, \
-                relevant context, and suggested next steps>
+                <2-4 sentence description. For bugs: what fails, where, and likely cause. \
+                For features: what and why. For tasks: scope and acceptance criteria.>
+
+                Example input: "TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156"
+                Example output:
+                TITLE: TypeError in Dashboard.jsx when data array is undefined
+
+                A TypeError occurs at Dashboard.jsx:156 when calling .map() on an undefined value. \
+                Likely caused by missing data initialization or a failed API response returning null \
+                instead of an empty array. Add a null check or default to [] before mapping.
                 """,
                 titleField: "title",
                 bodyField: "body"
