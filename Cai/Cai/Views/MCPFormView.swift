@@ -105,14 +105,14 @@ struct MCPFormView: View {
                 }
             }
 
-            // Triage: search for duplicates when title AND repo are both available
+            // Triage: search for duplicates when title AND scope (repo/team) are both available
             if let triageConfig = actionConfig.triageConfig {
                 let title = newValues[triageConfig.queryField] ?? ""
-                let repo = newValues["repo"] ?? ""
-                // Only search when we have both a title and a repo (scoped search)
+                let scopeValue = triageConfig.scopeField.flatMap { newValues[$0] } ?? ""
+                // Only search when we have both a title and a scope (scoped search)
                 // Re-trigger when either changes
-                let triageKey = "\(title)|\(repo)"
-                if !title.isEmpty && !repo.isEmpty && triageKey != lastTriageKey {
+                let triageKey = "\(title)|\(scopeValue)"
+                if !title.isEmpty && !scopeValue.isEmpty && triageKey != lastTriageKey {
                     lastTriageKey = triageKey
                     Task { await searchForDuplicates(query: title, triageConfig: triageConfig) }
                 }
@@ -452,6 +452,7 @@ struct MCPFormView: View {
                 Text("No options available")
                     .font(.system(size: 12))
                     .foregroundColor(.caiTextSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
             } else {
                 Picker("", selection: binding) {
@@ -462,6 +463,7 @@ struct MCPFormView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -783,7 +785,13 @@ struct MCPFormView: View {
             fieldLoading[field.id] = true
             // Clear previous options and selections when parent changes
             pickerOptions[field.id] = []
-            multiSelectValues[field.id] = []
+            fieldValues[field.id] = ""
+            // Only clear multiselect state for multiselect fields (avoids making pickers look like arrays)
+            if field.type == .multiselect {
+                multiSelectValues[field.id] = []
+            } else {
+                multiSelectValues.removeValue(forKey: field.id)
+            }
         }
 
         // Resolve argument mapping — supports {{parent:owner}} and {{parent:name}} for "owner/repo" splitting
@@ -1051,6 +1059,10 @@ struct MCPFormView: View {
                 let fieldId = field.id
 
                 switch field.source {
+                case .staticOptions(let options):
+                    // Static options — no MCP call needed
+                    group.addTask { (fieldId, options) }
+
                 case .mcp(let toolName):
                     await MainActor.run { fieldLoading[fieldId] = true }
                     group.addTask {
@@ -1097,21 +1109,29 @@ struct MCPFormView: View {
         await MainActor.run { isSearchingDuplicates = true }
 
         do {
-            // Build search arguments — use the title as the query, scoped to the selected repo
-            let searchQuery: String
-            if let config = MCPConfigManager.shared.serverConfigs.first(where: { $0.id == actionConfig.serverConfigId }),
-               config.providerType == .github {
+            // Build search arguments — provider-aware via config
+            var arguments: [String: Any] = [:]
+            let config = MCPConfigManager.shared.serverConfigs.first(where: { $0.id == actionConfig.serverConfigId })
+
+            if config?.providerType == .github {
+                // GitHub: search syntax with repo: and is:issue qualifiers
                 let repo = fieldValues["repo"] ?? ""
-                guard !repo.isEmpty else { return }  // Don't search without a repo — results would be noise
-                searchQuery = "\(query) repo:\(repo) is:issue"
+                guard !repo.isEmpty else { return }
+                arguments["query"] = "\(query) repo:\(repo) is:issue"
             } else {
-                searchQuery = query
+                // Linear and others: use query param + extra arguments from config
+                arguments["query"] = query
+                // Resolve searchArgumentMapping (e.g., "teamId": "{{scope}}" → actual team ID)
+                let scopeValue = triageConfig.scopeField.flatMap { fieldValues[$0] } ?? ""
+                for (param, template) in triageConfig.searchArgumentMapping {
+                    arguments[param] = template.replacingOccurrences(of: "{{scope}}", with: scopeValue)
+                }
             }
 
             let response = try await MCPClientService.shared.callTool(
                 serverConfigId: actionConfig.serverConfigId,
                 toolName: triageConfig.searchTool,
-                arguments: ["query": searchQuery]
+                arguments: arguments
             )
 
             // Parse results
@@ -1162,6 +1182,7 @@ struct MCPFormView: View {
             guard !title.isEmpty else { return nil }
 
             let id = (obj["number"] as? Int).map(String.init)
+                ?? (obj["identifier"] as? String)  // Linear uses "identifier" (e.g., "ENG-123")
                 ?? (obj["id"] as? String)
                 ?? (obj["id"] as? Int).map(String.init)
                 ?? title
@@ -1214,10 +1235,14 @@ struct MCPFormView: View {
             let resolved = resolveTemplate(template)
             // Skip empty optional values
             guard !resolved.isEmpty else { continue }
-            // Arrays (comma-separated) → JSON array
-            if resolved.contains(",") && isArrayField(template) {
+
+            if isArrayField(template) {
+                // Multiselect fields → always send as array (even single selection)
                 let items = resolved.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
                 arguments[toolParam] = items
+            } else if let intVal = Int(resolved), isNumericField(template) {
+                // Numeric fields (e.g., priority 0-4) → send as Int, not String
+                arguments[toolParam] = intVal
             } else {
                 arguments[toolParam] = resolved
             }
@@ -1418,6 +1443,19 @@ struct MCPFormView: View {
               let range = Range(match.range(at: 1), in: template) else { return false }
         let key = String(template[range])
         return multiSelectValues[key] != nil
+    }
+
+    /// Checks if a template field uses static numeric options (e.g., priority 0-4).
+    private func isNumericField(_ template: String) -> Bool {
+        let pattern = "\\{\\{([^}]+)\\}\\}"
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: template, range: NSRange(template.startIndex..., in: template)),
+              let range = Range(match.range(at: 1), in: template) else { return false }
+        let key = String(template[range])
+        // Check if this field uses staticOptions with numeric IDs
+        guard let field = actionConfig.fields.first(where: { $0.id == key }),
+              case .staticOptions(let options) = field.source else { return false }
+        return options.allSatisfy { Int($0.id) != nil }
     }
 }
 

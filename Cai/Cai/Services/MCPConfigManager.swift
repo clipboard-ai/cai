@@ -136,6 +136,7 @@ class MCPConfigManager: ObservableObject {
             triageConfig: MCPTriageConfig(
                 searchTool: "search_issues",
                 queryField: "title",
+                scopeField: "repo",
                 commentTool: "add_issue_comment",
                 commentMapping: [
                     "owner": "{{repo:owner}}",
@@ -173,27 +174,38 @@ class MCPConfigManager: ObservableObject {
                 MCPFieldConfig(id: "title", label: "Title", type: .text, source: .llm, required: true),
                 MCPFieldConfig(id: "body", label: "Description", type: .textarea, source: .llm, required: true),
                 MCPFieldConfig(id: "team", label: "Team", type: .picker, source: .mcp(toolName: "list_teams"), required: true),
-                MCPFieldConfig(id: "project", label: "Project", type: .picker, source: .mcp(toolName: "list_projects")),
-                MCPFieldConfig(id: "priority", label: "Priority", type: .picker, source: .mcp(toolName: "list_priorities")),
-                MCPFieldConfig(id: "labels", label: "Labels", type: .multiselect, source: .mcp(toolName: "list_labels")),
-                MCPFieldConfig(id: "assignee", label: "Assignee", type: .picker, source: .mcp(toolName: "list_assignees")),
+                MCPFieldConfig(id: "project", label: "Project", type: .picker, source: .mcpDependentOn(
+                    parentField: "team",
+                    toolName: "list_projects",
+                    argumentMapping: ["team": "{{parent}}"]
+                )),
+                MCPFieldConfig(id: "priority", label: "Priority", type: .picker, source: .staticOptions([
+                    MCPPickerOption(id: "0", label: "No priority"),
+                    MCPPickerOption(id: "1", label: "Urgent"),
+                    MCPPickerOption(id: "2", label: "High"),
+                    MCPPickerOption(id: "3", label: "Medium"),
+                    MCPPickerOption(id: "4", label: "Low"),
+                ])),
+                MCPFieldConfig(id: "labels", label: "Labels", type: .multiselect, source: .mcpDependentOn(
+                    parentField: "team",
+                    toolName: "list_issue_labels",
+                    argumentMapping: ["team": "{{parent}}"]
+                )),
+                MCPFieldConfig(id: "assignee", label: "Assignee", type: .picker, source: .mcp(toolName: "list_users")),
             ],
-            submitTool: "create_issue",
+            submitTool: "save_issue",
             submitMapping: [
-                "teamId": "{{team}}",
-                "projectId": "{{project}}",
+                "team": "{{team}}",
+                "project": "{{project}}",
                 "title": "{{title}}",
                 "description": "{{body}}",
                 "priority": "{{priority}}",
-                "labelIds": "{{labels}}",
-                "assigneeId": "{{assignee}}",
+                "labels": "{{labels}}",
+                "assignee": "{{assignee}}",
             ],
-            triageConfig: MCPTriageConfig(
-                searchTool: "search_issues",
-                queryField: "title",
-                commentTool: nil,  // Linear MCP may not support adding comments
-                maxResults: 3
-            )
+            // No triage for Linear — their MCP doesn't expose issue search.
+            // list_issues returns all issues (no query filtering), so results are irrelevant.
+            triageConfig: nil
         )
     }
 

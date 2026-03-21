@@ -245,10 +245,19 @@ actor MCPClientService {
 
         if let array = rootArray {
             let options = array.compactMap { obj -> MCPPickerOption? in
-                let id = (obj["full_name"] as? String)
-                    ?? (obj["name"] as? String)
-                    ?? (obj["id"] as? String)
-                    ?? (obj["id"] as? Int).map(String.init)
+                // ID strategy:
+                // - If `full_name` exists (e.g. GitHub "owner/repo"), use it (supports template splitting)
+                // - Otherwise prefer `id` (UUID) for APIs that expect IDs (e.g. Linear teamId)
+                // - Fallback to `name`
+                let id: String?
+                if let fullName = obj["full_name"] as? String {
+                    id = fullName
+                } else {
+                    id = (obj["id"] as? String)
+                        ?? (obj["id"] as? Int).map(String.init)
+                        ?? (obj["name"] as? String)
+                }
+                // Label: prefer human-readable name for display
                 let label = (obj["full_name"] as? String)
                     ?? (obj["name"] as? String)
                     ?? (obj["title"] as? String)

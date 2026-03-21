@@ -151,21 +151,27 @@ struct MCPLLMPrompt {
 struct MCPTriageConfig {
     let searchTool: String              // MCP tool to search: "search_issues"
     let queryField: String              // Which form field to use as search query: "title"
+    let scopeField: String?             // Form field that scopes the search: "repo" (GitHub) or "team" (Linear)
     let commentTool: String?            // Tool to add comment to existing issue (nil = info-only)
     let commentMapping: [String: String] // Maps tool params for commenting: "issue_number": "{{issue_id}}"
+    let searchArgumentMapping: [String: String] // Extra args for search tool: ["teamId": "{{scope}}"]
     let maxResults: Int                 // Cap displayed results (default: 3)
 
     init(
         searchTool: String,
         queryField: String,
+        scopeField: String? = nil,
         commentTool: String? = nil,
         commentMapping: [String: String] = [:],
+        searchArgumentMapping: [String: String] = [:],
         maxResults: Int = 3
     ) {
         self.searchTool = searchTool
         self.queryField = queryField
+        self.scopeField = scopeField
         self.commentTool = commentTool
         self.commentMapping = commentMapping
+        self.searchArgumentMapping = searchArgumentMapping
         self.maxResults = maxResults
     }
 }
@@ -213,6 +219,7 @@ enum MCPFieldType: String {
 enum MCPFieldSource {
     case userInput                      // User types freely
     case llm                           // LLM generates initial value, user can edit
+    case staticOptions([MCPPickerOption]) // Fixed options (e.g., priority levels 0-4)
     case mcp(toolName: String)          // Options fetched via MCP tool call
     case mcpPrefetch(                   // Pre-fetch all options on init, filter locally on type
         contextTool: String,            // Tool to get user info: "get_me"
