@@ -4,7 +4,7 @@
 
 <h1 align="center">Cai</h1>
 
-<h3 align="center">Select anything, press ⌥C, and transform with AI.</h3>
+<h3 align="center">The AI clipboard assistant for macOS</h3>
 
 <p align="center">
   A privacy-first clipboard assistant for macOS.<br>
@@ -87,7 +87,7 @@ No cloud. No telemetry. No accounts.
 1. Download the `.dmg` from the [latest release](../../releases/latest)
 2. Open the DMG and drag **Cai.app** to your Applications folder
 3. Open the app and grant Accessibility permission ([see below](#first-launch-setup))
-4. Cai will download a small AI model (~2 GB) on first launch — or skip if you already use LM Studio / Ollama
+4. On macOS 26+, Cai uses Apple Intelligence automatically. On older versions, a built-in model (~2 GB) downloads on first launch — or skip if you already use LM Studio / Ollama
 
 ### First Launch Setup
 
@@ -139,10 +139,11 @@ AI is optional — system actions (Maps, Calendar, Search, Pretty Print JSON) wo
 
 ## Custom Actions
 
-Save frequently used prompts and URL templates as custom actions. They appear when you type to filter the action list.
+Save frequently used prompts, URL templates, and shell commands as custom actions. They appear when you type to filter the action list.
 
 - **Prompt** — sends clipboard text + your prompt to the LLM (e.g., "Rewrite as email reply")
-- **URL** — opens a URL with clipboard text substituted via `%s` (e.g., `https://reddit.com/search/?q=%s`)
+- **URL** — opens a URL with clipboard text substituted via `%s` (e.g., `https://drive.google.com/drive/search?q=%s`)
+- **Shell** — runs a shell command with your clipboard text (e.g., `echo "%s" | wc -w`)
 
 Create them in Preferences → Custom Actions.
 
@@ -155,6 +156,18 @@ Send results to an output destination instead of just copying to clipboard.
 **Custom destinations:** Webhook, AppleScript, Deeplink, Shell Command — use `{{result}}` as a placeholder for your text.
 
 Create them in Preferences → Output Destinations. Enable "Show in action list" for direct-access workflows.
+
+## Connectors
+
+Create GitHub Issues and Linear tickets directly from your clipboard. Cai uses AI to generate titles and descriptions from copied text or screenshots.
+
+**Supported connectors:**
+- **GitHub** — create issues in any repo with a fine-grained personal access token
+- **Linear** — create tickets in any team with an API key
+
+Set up connectors in Preferences → Connectors. Tokens are stored in macOS Keychain.
+
+> See the [connector setup guide](https://getcai.app/docs/usage/connectors/) for step-by-step instructions.
 
 ## Community Extensions
 
