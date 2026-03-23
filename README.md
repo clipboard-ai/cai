@@ -26,7 +26,7 @@
 
 ---
 
-<video src="assets/cai-demo.mp4" width="100%" autoplay loop muted playsinline></video>
+![Cai Demo](assets/cai-demo.mp4)
 
 Cai is a native macOS menu bar app that detects what's on your clipboard and offers smart, context-aware actions. Copy a meeting invite and it creates a calendar event. Copy an address and it opens Maps. Copy a screenshot and it extracts the text. Copy any text and ask your local AI to summarize, translate, or do anything you want — all without leaving your keyboard.
 
