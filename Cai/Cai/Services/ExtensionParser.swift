@@ -194,7 +194,7 @@ struct ExtensionParser {
             throw ParseError.missingField("webhook.url")
         }
 
-        guard url.lowercased().hasPrefix("https://") else {
+        guard url.lowercased().hasPrefix("https://") || url.contains("{{") else {
             throw ParseError.insecureURL
         }
 
