@@ -42,6 +42,7 @@ struct MCPFormView: View {
     @State private var isSearchingDuplicates: Bool = false
     @State private var commentOnIssue: MCPTriageResult?  // Set when user chooses "Add comment"
     @State private var lastTriageKey: String = ""        // Tracks last title+repo combo to avoid redundant searches
+    @State private var triageDebounceTask: Task<Void, Never>?  // Cancellable debounce for triage search
 
     // MARK: - Overall State
 
@@ -114,7 +115,15 @@ struct MCPFormView: View {
                 let triageKey = "\(title)|\(scopeValue)"
                 if !title.isEmpty && !scopeValue.isEmpty && triageKey != lastTriageKey {
                     lastTriageKey = triageKey
-                    Task { await searchForDuplicates(query: title, triageConfig: triageConfig) }
+                    // Debounce: cancel previous search, wait 500ms before firing
+                    triageDebounceTask?.cancel()
+                    let currentConfig = triageConfig
+                    let currentTitle = title
+                    triageDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        guard !Task.isCancelled else { return }
+                        await searchForDuplicates(query: currentTitle, triageConfig: currentConfig)
+                    }
                 }
             }
         }
