@@ -1,6 +1,12 @@
 # CLAUDE.md
 
-Quick reference for Claude Code. For detailed feature docs, see [`_docs/ARCHITECTURE.md`](_docs/ARCHITECTURE.md).
+Quick reference for Claude Code. For the full docs map (when to read what), see [`_docs/INDEX.md`](_docs/INDEX.md).
+
+## Design System
+Always read [`_docs/design/DESIGN.md`](_docs/design/DESIGN.md) before making any visual or UI decisions.
+All color tokens, typography sizes, spacing, border radii, animation curves, and component patterns are defined there.
+Do not deviate from the design system without explicit user approval.
+In QA mode, flag any code that doesn't match DESIGN.md.
 
 ## What is Cai?
 
@@ -84,15 +90,15 @@ Cai/Cai/
 
 ## Feature Overview
 
-- **[Core flow](_docs/ARCHITECTURE.md#core-flow)**: Option+C → CGEvent Cmd+C → ContentDetector → ActionGenerator → ActionListWindow
-- **[Custom actions](_docs/ARCHITECTURE.md#custom-shortcuts)**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView. (Code still uses `CaiShortcut` / `shortcuts` internally.)
-- **[Output destinations](_docs/ARCHITECTURE.md#output-destinations)**: Email, Notes, Reminders (built-in) + Webhook, AppleScript, Deeplink, Shell (custom). `{{result}}` placeholder, auto-escaped per type.
-- **[Community extensions](_docs/ARCHITECTURE.md#community-extensions)**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
-- **[Built-in LLM](_docs/ARCHITECTURE.md#built-in-llm)**: Bundled llama-server (llama.cpp b8390). Auto-download Ministral 3B. Crash recovery. See also [`_docs/BUILT-IN-LLM.md`](_docs/BUILT-IN-LLM.md). For updating, see [`_docs/LLAMA-UPDATE.md`](_docs/LLAMA-UPDATE.md).
-- **[Crash reporting](_docs/ARCHITECTURE.md#crash-reporting-sentry)**: Opt-in Sentry, disabled by default. No PII.
-- **[MCP connectors](_docs/MCP.md)**: GitHub, Linear via MCP protocol. Declarative `MCPActionConfig` → generic `MCPFormView`. Config: `~/.config/cai/mcp-servers.json`. Actions always visible for enabled connectors; clicking without API key redirects to Connectors setup. Provider docs: [`_docs/mcp-providers/`](_docs/mcp-providers/).
-- **[Architecture patterns](_docs/ARCHITECTURE.md#key-architecture-patterns)**: No Sandbox, CGEvent, CaiPanel, PassThrough, keyboard routing, actors.
-- **[Bundle IDs](_docs/ARCHITECTURE.md#bundle-ids)**: Debug `com.soyasis.cai.dev`, Release `com.soyasis.cai` (separate accessibility entries).
+- **[Core flow](_docs/architecture/ARCHITECTURE.md#core-flow)**: Option+C → CGEvent Cmd+C → ContentDetector → ActionGenerator → ActionListWindow
+- **[Custom actions](_docs/architecture/ARCHITECTURE.md#custom-shortcuts)**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView. (Code still uses `CaiShortcut` / `shortcuts` internally.)
+- **[Output destinations](_docs/architecture/ARCHITECTURE.md#output-destinations)**: Email, Notes, Reminders (built-in) + Webhook, AppleScript, Deeplink, Shell (custom). `{{result}}` placeholder, auto-escaped per type.
+- **[Community extensions](_docs/architecture/ARCHITECTURE.md#community-extensions)**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
+- **[Built-in LLM](_docs/architecture/ARCHITECTURE.md#built-in-llm)**: Bundled llama-server (llama.cpp b8390). Auto-download Ministral 3B. Crash recovery. See also [`_docs/architecture/LLM.md`](_docs/architecture/LLM.md). For updating, see [`_docs/architecture/changelog/LLAMA-UPDATE.md`](_docs/architecture/changelog/LLAMA-UPDATE.md).
+- **[Crash reporting](_docs/architecture/ARCHITECTURE.md#crash-reporting-sentry)**: Opt-in Sentry, disabled by default. No PII.
+- **[MCP connectors](_docs/architecture/MCP.md)**: GitHub, Linear via MCP protocol. Declarative `MCPActionConfig` → generic `MCPFormView`. Config: `~/.config/cai/mcp-servers.json`. Actions always visible for enabled connectors; clicking without API key redirects to Connectors setup. Provider docs: [`_docs/connectors/`](_docs/connectors/).
+- **[Architecture patterns](_docs/architecture/ARCHITECTURE.md#key-architecture-patterns)**: No Sandbox, CGEvent, CaiPanel, PassThrough, keyboard routing, actors.
+- **[Bundle IDs](_docs/architecture/ARCHITECTURE.md#bundle-ids)**: Debug `com.soyasis.cai.dev`, Release `com.soyasis.cai` (separate accessibility entries).
 
 ## Tests
 
@@ -135,7 +141,7 @@ Tests in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ cases covering all co
 4. PR validation runs automatically (checks format, HTTPS for webhooks, author match)
 
 ### Building a DMG
-See `_docs/dmg-assets/BUILD-DMG.md` for the full process.
+See `_docs/process/dmg-assets/BUILD-DMG.md` for the full process.
 
 ## Important Gotchas
 
