@@ -135,7 +135,7 @@ Tests in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ cases covering all co
 4. Add UI in `SettingsView.swift`
 
 ### Adding a New Community Extension
-1. Create `extensions/<slug>/extension.yaml` in the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo
+1. Create `extensions/<slug>/extension.yaml` in the [cai-extensions](https://github.com/cai-layer/cai-extensions) repo
 2. Add entry to `index.json` with slug, name, description, author, version, icon, type, tags
 3. YAML must start with `# cai-extension` header
 4. PR validation runs automatically (checks format, HTTPS for webhooks, author match)

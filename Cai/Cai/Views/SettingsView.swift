@@ -328,7 +328,7 @@ struct SettingsView: View {
                     // Feedback & bug links
                     HStack(spacing: 12) {
                         Button(action: {
-                            if let url = URL(string: "https://github.com/clipboard-ai/cai/discussions") {
+                            if let url = URL(string: "https://github.com/cai-layer/cai/discussions") {
                                 NSWorkspace.shared.open(url)
                                 onDismiss?()
                             }
@@ -344,7 +344,7 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
 
                         Button(action: {
-                            if let url = URL(string: "https://github.com/clipboard-ai/cai/issues") {
+                            if let url = URL(string: "https://github.com/cai-layer/cai/issues") {
                                 NSWorkspace.shared.open(url)
                                 onDismiss?()
                             }

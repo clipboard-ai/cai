@@ -405,7 +405,7 @@ struct ShortcutsManagementView: View {
 
         SystemActions.copyToClipboard(yaml)
 
-        if let url = URL(string: "https://github.com/clipboard-ai/cai-extensions") {
+        if let url = URL(string: "https://github.com/cai-layer/cai-extensions") {
             NSWorkspace.shared.open(url)
         }
 

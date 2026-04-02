@@ -12,16 +12,16 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/clipboard-ai/cai?label=download&color=blue" alt="Download"></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/cai-layer/cai?label=download&color=blue" alt="Download"></a>
   <img src="https://img.shields.io/badge/macOS-13.0%2B-blue" alt="macOS 13.0+">
   <img src="https://img.shields.io/badge/Swift-5.9-F05138" alt="Swift 5.9">
   <img src="https://img.shields.io/badge/runs%20100%25%20locally-black" alt="Runs locally">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
-  <a href="../../stargazers"><img src="https://img.shields.io/github/stars/clipboard-ai/cai?style=flat" alt="GitHub Stars"></a>
+  <a href="../../stargazers"><img src="https://img.shields.io/github/stars/cai-layer/cai?style=flat" alt="GitHub Stars"></a>
 </p>
 
 <p align="center">
-  <a href="https://getcai.app">Website</a> · <a href="../../releases/latest">Download</a> · <a href="https://github.com/clipboard-ai/cai-extensions">Extensions</a>
+  <a href="https://getcai.app">Website</a> · <a href="../../releases/latest">Download</a> · <a href="https://github.com/cai-layer/cai-extensions">Extensions</a>
 </p>
 
 ---
@@ -106,7 +106,7 @@ You're all set! Press **⌥C** with any text selected to start using Cai.
 ### Build from Source
 
 ```bash
-git clone https://github.com/clipboard-ai/cai.git
+git clone https://github.com/cai-layer/cai.git
 cd cai/Cai
 open Cai.xcodeproj
 ```
@@ -171,13 +171,13 @@ Set up connectors in Preferences → Connectors. Tokens are stored in macOS Keyc
 
 ## Community Extensions
 
-Browse and install extensions from the [cai-extensions](https://github.com/clipboard-ai/cai-extensions) repo.
+Browse and install extensions from the [cai-extensions](https://github.com/cai-layer/cai-extensions) repo.
 
 **Install:** Copy an extension's YAML → press **⌥C** → "Install Extension" → review and confirm.
 
 Cai shows a trust confirmation before installing — you'll see the extension name, type, author, and where it sends data (if applicable). AppleScript and shell extensions are blocked from clipboard install for security.
 
-**Create your own:** Fork the repo, add a YAML file, and open a PR. See the [extension guide](https://github.com/clipboard-ai/cai-extensions#creating-extensions) for details.
+**Create your own:** Fork the repo, add a YAML file, and open a PR. See the [extension guide](https://github.com/cai-layer/cai-extensions#creating-extensions) for details.
 
 ## Requirements
 

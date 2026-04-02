@@ -794,7 +794,7 @@ struct MCPFormView: View {
             }
         }
 
-        // Also try to find org names via regex as fallback (e.g., "org":"clipboard-ai")
+        // Also try to find org names via regex as fallback (e.g., "org":"cai-layer")
         if orgs.isEmpty {
             let pattern = "\"(?:org|organization)\"\\s*:\\s*\"([^\"]+)\""
             if let regex = try? NSRegularExpression(pattern: pattern) {

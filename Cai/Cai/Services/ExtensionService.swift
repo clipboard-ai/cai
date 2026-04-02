@@ -5,7 +5,7 @@ import Foundation
 /// Fetches community extensions from the curated GitHub repo.
 struct ExtensionService {
 
-    private static let baseURL = "https://raw.githubusercontent.com/clipboard-ai/cai-extensions/master"
+    private static let baseURL = "https://raw.githubusercontent.com/cai-layer/cai-extensions/master"
 
     // MARK: - Models
 
