@@ -339,21 +339,29 @@ actor LLMService {
     /// Used by ResultView for progressive token display.
     func generateStreamingWithMessages(_ messages: [ChatMessage]) async throws -> AsyncThrowingStream<String, Error> {
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
-        guard provider == .builtIn else {
-            // Non-MLX providers: wrap full response as a single-element stream
-            let fullResponse = try await generateWithMessages(messages)
-            return AsyncThrowingStream { continuation in
-                continuation.yield(fullResponse)
-                continuation.finish()
+
+        // Built-in MLX — native streaming
+        if provider == .builtIn {
+            guard await MLXInference.shared.isLoaded else {
+                throw LLMError.connectionFailed
             }
+            let tuples = messages.map { (role: $0.role, content: $0.content) }
+            return try await MLXInference.shared.generateStream(messages: tuples)
         }
 
-        guard await MLXInference.shared.isLoaded else {
-            throw LLMError.connectionFailed
+        // Apple Intelligence — streaming via FoundationModels
+        #if canImport(FoundationModels)
+        if provider == .apple, #available(macOS 26, *) {
+            return try await streamWithAppleFM(messages)
         }
+        #endif
 
-        let tuples = messages.map { (role: $0.role, content: $0.content) }
-        return try await MLXInference.shared.generateStream(messages: tuples)
+        // External providers (LM Studio, Ollama, custom): wrap full response as single-element stream
+        let fullResponse = try await generateWithMessages(messages)
+        return AsyncThrowingStream { continuation in
+            continuation.yield(fullResponse)
+            continuation.finish()
+        }
     }
 
     // MARK: - Apple Intelligence (FoundationModels)
@@ -406,6 +414,49 @@ actor LLMService {
             // Send the final (or only) user message
             let response = try await session.respond(to: userMessages.last!.content)
             return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        #endif
+        throw LLMError.appleIntelligenceUnavailable
+    }
+
+    /// Streams a response using Apple's on-device Foundation Models.
+    private func streamWithAppleFM(_ messages: [ChatMessage]) async throws -> AsyncThrowingStream<String, Error> {
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            let model = SystemLanguageModel.default
+            guard model.availability == .available else {
+                throw LLMError.appleIntelligenceUnavailable
+            }
+
+            let systemPrompt = messages.first(where: { $0.role == "system" })?.content ?? ""
+            let session = LanguageModelSession(instructions: systemPrompt)
+
+            let userMessages = messages.filter { $0.role == "user" }
+            guard !userMessages.isEmpty else {
+                throw LLMError.emptyResponse
+            }
+
+            // Replay earlier messages for follow-ups
+            if userMessages.count > 1 {
+                for userMsg in userMessages.dropLast() {
+                    _ = try await session.respond(to: userMsg.content)
+                }
+            }
+
+            let prompt = userMessages.last!.content
+            return AsyncThrowingStream { continuation in
+                Task {
+                    do {
+                        let stream = session.streamResponse(to: prompt)
+                        for try await partial in stream {
+                            continuation.yield(partial.content)
+                        }
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+            }
         }
         #endif
         throw LLMError.appleIntelligenceUnavailable

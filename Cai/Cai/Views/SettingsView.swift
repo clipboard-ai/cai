@@ -373,108 +373,122 @@ struct SettingsView: View {
 
     // MARK: - Built-in Model Section
 
+    private static let customModelTag = "__custom__"
+    @State private var selectedModelId: String = ""
+    @State private var customModelId: String = ""
+    @State private var isDownloadingModel: Bool = false
+
     @ViewBuilder
     private var builtInModelSection: some View {
-        let localModels = CaiSettings.scanBuiltInModels()
+        VStack(alignment: .leading, spacing: 8) {
+            // Current model
+            if !settings.builtInModelId.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.caiSuccess)
+                    Text(settings.builtInModelDisplayName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.caiTextPrimary)
+                }
+            }
 
-        if !localModels.isEmpty {
-            // Model(s) available — show picker
-            VStack(alignment: .leading, spacing: 6) {
-                Picker("", selection: Binding(
-                    get: { settings.builtInModelFileName },
-                    set: { newFileName in
-                        let newPath = MLXInference.modelsDirectory
-                            .appendingPathComponent(newFileName).path
-                        guard newPath != settings.builtInModelPath else { return }
-                        switchBuiltInModel(to: newPath)
+            // Model picker + download
+            HStack(spacing: 8) {
+                Picker("", selection: $selectedModelId) {
+                    Text("Select a model...").tag("")
+                    ForEach(MLXInference.curatedModels, id: \.id) { model in
+                        Text("\(model.name) (\(model.size))").tag(model.id)
                     }
-                )) {
-                    ForEach(localModels, id: \.self) { fileName in
-                        Text(fileName).tag(fileName)
-                    }
+                    Divider()
+                    Text("Other (HuggingFace ID)...").tag(Self.customModelTag)
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .accessibilityLabel("Built-in model selection")
+                .accessibilityLabel("Model selection")
+                .onAppear { selectedModelId = settings.builtInModelId }
 
-                Text("Runs on your Mac · Powered by MLX on Apple Silicon")
-                    .font(.system(size: 10))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-
-                HStack(spacing: 12) {
-                    Spacer()
-                    Button("Delete Model") {
-                        deleteBuiltInModel()
+                if isDownloadingModel {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                } else if !selectedModelId.isEmpty
+                            && selectedModelId != settings.builtInModelId
+                            && selectedModelId != Self.customModelTag {
+                    Button("Download") {
+                        downloadAndSwitchModel(id: selectedModelId)
                     }
-                    .font(.system(size: 10))
-                    .foregroundColor(.red.opacity(0.8))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiPrimary)
                     .buttonStyle(.plain)
                 }
             }
-        } else {
-            // No models — show download prompt
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.circle")
-                        .font(.system(size: 12))
-                        .foregroundColor(.caiError)
-                    Text("No model downloaded")
-                        .font(.system(size: 12))
-                        .foregroundColor(.caiTextSecondary)
-                }
 
-                Text("Download \(ModelDownloader.defaultModel.name) (\(ModelDownloader.defaultModel.formattedSize)) to use the built-in AI engine.")
+            // Custom model input — only shown when "Other" is selected
+            if selectedModelId == Self.customModelTag {
+                HStack(spacing: 8) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.caiSurface.opacity(0.6))
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(Color.caiDivider.opacity(0.5), lineWidth: 0.5)
+                        TextField("mlx-community/model-name-4bit", text: $customModelId)
+                            .font(.system(size: 11))
+                            .textFieldStyle(.plain)
+                            .padding(.horizontal, 8)
+                    }
+                    .frame(height: 24)
+
+                    if isDownloadingModel {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                    } else if !customModelId.isEmpty {
+                        Button("Download") {
+                            downloadAndSwitchModel(id: customModelId)
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.caiPrimary)
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            HStack(spacing: 0) {
+                Text("Powered by MLX on Apple Silicon · ")
                     .font(.system(size: 10))
                     .foregroundColor(.caiTextSecondary.opacity(0.6))
-
-                Button(action: { onShowModelSetup?() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 11))
-                        Text("Download Model")
-                            .font(.system(size: 11, weight: .medium))
+                Button("Browse models") {
+                    if let url = URL(string: "https://huggingface.co/mlx-community") {
+                        NSWorkspace.shared.open(url)
+                        onDismiss?()
                     }
-                    .foregroundColor(.caiPrimary)
                 }
+                .font(.system(size: 10))
+                .foregroundColor(.caiPrimary)
                 .buttonStyle(.plain)
             }
         }
     }
 
-    private func switchBuiltInModel(to newPath: String) {
+    private func downloadAndSwitchModel(id: String) {
+        isDownloadingModel = true
         Task {
-            settings.builtInModelPath = newPath
-            try? await MLXInference.shared.loadModel(id: ModelDownloader.defaultModel.id)
-            forceCheckLLMStatus()
-        }
-    }
-
-    private func deleteBuiltInModel() {
-        // Stop the server first
-        Task {
-            await MLXInference.shared.unload()
-        }
-
-        // Delete the currently selected model file
-        let modelPath = settings.builtInModelPath
-        if !modelPath.isEmpty {
-            try? FileManager.default.removeItem(atPath: modelPath)
-        }
-
-        // Try to fall back to another model in the folder
-        let remaining = CaiSettings.scanBuiltInModels()
-        if let next = remaining.first {
-            let nextPath = MLXInference.modelsDirectory.appendingPathComponent(next).path
-            settings.builtInModelPath = nextPath
-            Task {
-                try? await MLXInference.shared.loadModel(id: ModelDownloader.defaultModel.id)
+            do {
+                try await MLXInference.shared.loadModel(id: id)
+                await MainActor.run {
+                    settings.builtInModelId = id
+                    settings.builtInSetupDone = true
+                    isDownloadingModel = false
+                    customModelId = ""
+                    selectedModelId = id
+                }
+                forceCheckLLMStatus()
+            } catch {
+                await MainActor.run {
+                    isDownloadingModel = false
+                }
+                print("⚠️ Failed to download model: \(error.localizedDescription)")
             }
-        } else {
-            settings.builtInModelPath = ""
-            settings.builtInSetupDone = false
         }
-
-        forceCheckLLMStatus()
     }
 
     // MARK: - Navigation Row
@@ -586,22 +600,18 @@ struct SettingsView: View {
     }
 
     private func startBuiltInIfNeeded() {
-        let modelPath = settings.builtInModelPath
-        guard settings.builtInSetupDone,
-              !modelPath.isEmpty,
-              FileManager.default.fileExists(atPath: modelPath) else { return }
+        guard settings.builtInSetupDone, !settings.builtInModelId.isEmpty else { return }
 
         Task {
-            let isRunning = await MLXInference.shared.isLoaded
-            if !isRunning {
+            let isLoaded = await MLXInference.shared.isLoaded
+            if !isLoaded {
                 do {
-                    try await MLXInference.shared.loadModel(id: ModelDownloader.defaultModel.id)
-                    print("Built-in LLM started from Settings")
+                    try await MLXInference.shared.loadModel(id: settings.builtInModelId)
+                    print("🧠 Built-in MLX model loaded from Settings")
                 } catch {
-                    print("Failed to start built-in LLM from Settings: \(error.localizedDescription)")
+                    print("⚠️ Failed to load MLX model from Settings: \(error.localizedDescription)")
                 }
             }
-            // Refresh status after starting
             await MainActor.run { forceCheckLLMStatus() }
         }
     }

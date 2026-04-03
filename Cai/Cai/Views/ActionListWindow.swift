@@ -13,6 +13,7 @@ struct ActionListWindow: View {
     @State private var showResult: Bool = false
     @State private var resultTitle: String = ""
     @State private var resultGenerator: (() async throws -> String)?
+    @State private var resultStreamGenerator: (() async throws -> AsyncThrowingStream<String, Error>)?
     @State private var pendingResultText: String = ""
     @State private var showSettings: Bool = false
     @State private var showHistory: Bool = false
@@ -518,6 +519,9 @@ struct ActionListWindow: View {
         resultGenerator = {
             return try await LLMService.shared.generateWithMessages(messages)
         }
+        resultStreamGenerator = {
+            return try await LLMService.shared.generateStreamingWithMessages(messages)
+        }
         resultViewId += 1
     }
 
@@ -539,6 +543,7 @@ struct ActionListWindow: View {
             showResult = false
             showFollowUpInput = false
             resultGenerator = nil
+            resultStreamGenerator = nil
             resultTitle = ""
             pendingResultText = ""
             conversationHistory = []
@@ -777,23 +782,16 @@ struct ActionListWindow: View {
     private var modelChipView: some View {
         Menu {
             if settings.modelProvider == .builtIn {
-                // Built-in: list local .gguf files from models folder
-                let localModels = CaiSettings.scanBuiltInModels()
-                if localModels.isEmpty {
-                    Text("No models found")
-                } else {
-                    ForEach(localModels, id: \.self) { fileName in
-                        Button(action: {
-                            let newPath = MLXInference.modelsDirectory
-                                .appendingPathComponent(fileName).path
-                            guard newPath != settings.builtInModelPath else { return }
-                            switchBuiltInModel(to: newPath, fileName: fileName)
-                        }) {
-                            HStack {
-                                Text(fileName)
-                                if fileName == settings.builtInModelFileName {
-                                    Image(systemName: "checkmark")
-                                }
+                // Built-in MLX: show curated models
+                ForEach(MLXInference.curatedModels, id: \.id) { model in
+                    Button(action: {
+                        guard model.id != settings.builtInModelId else { return }
+                        switchBuiltInModel(to: model.id, displayName: model.name)
+                    }) {
+                        HStack {
+                            Text("\(model.name) (\(model.size))")
+                            if model.id == settings.builtInModelId {
+                                Image(systemName: "checkmark")
                             }
                         }
                     }
@@ -856,12 +854,12 @@ struct ActionListWindow: View {
         }
     }
 
-    private func switchBuiltInModel(to newPath: String, fileName: String) {
+    private func switchBuiltInModel(to newId: String, displayName: String) {
         isSwitchingModel = true
-        currentModelName = shortenModelName(fileName)
+        currentModelName = displayName
         Task {
-            settings.builtInModelPath = newPath
-            try? await MLXInference.shared.loadModel(id: ModelDownloader.defaultModel.id)
+            settings.builtInModelId = newId
+            try? await MLXInference.shared.loadModel(id: newId)
             await MainActor.run {
                 isSwitchingModel = false
             }
@@ -1018,9 +1016,11 @@ struct ActionListWindow: View {
             conversationHistory = initialMessages
             isFollowUpEnabled = true
 
-            showResultView(title: title) {
+            showResultView(title: title, generator: {
                 return try await LLMService.shared.generateWithMessages(initialMessages)
-            }
+            }, streamGenerator: {
+                return try await LLMService.shared.generateStreamingWithMessages(initialMessages)
+            })
 
         case .customPrompt:
             selectionState.filterText = ""
@@ -1086,10 +1086,15 @@ struct ActionListWindow: View {
         }
     }
 
-    private func showResultView(title: String, generator: @escaping () async throws -> String) {
+    private func showResultView(
+        title: String,
+        generator: @escaping () async throws -> String,
+        streamGenerator: (() async throws -> AsyncThrowingStream<String, Error>)? = nil
+    ) {
         selectionState.filterText = ""
         resultTitle = title
         resultGenerator = generator
+        resultStreamGenerator = streamGenerator
         pendingResultText = ""
         showFollowUpInput = false
         followUpText = ""
@@ -1110,9 +1115,11 @@ struct ActionListWindow: View {
             isFollowUpEnabled = true
             isNewAction = false
 
-            showResultView(title: instruction) {
+            showResultView(title: instruction, generator: {
                 return try await LLMService.shared.generateWithMessages(initialMessages)
-            }
+            }, streamGenerator: {
+                return try await LLMService.shared.generateStreamingWithMessages(initialMessages)
+            })
         } else {
             // Existing custom action flow — clipboard text as context
             let clipboardText = self.text
@@ -1123,9 +1130,11 @@ struct ActionListWindow: View {
             conversationHistory = initialMessages
             isFollowUpEnabled = true
 
-            showResultView(title: instruction) {
+            showResultView(title: instruction, generator: {
                 return try await LLMService.shared.generateWithMessages(initialMessages)
-            }
+            }, streamGenerator: {
+                return try await LLMService.shared.generateStreamingWithMessages(initialMessages)
+            })
         }
     }
 
@@ -1229,7 +1238,8 @@ struct ActionListWindow: View {
                 isFollowUpEnabled: isFollowUpEnabled,
                 showFollowUpInput: $showFollowUpInput,
                 followUpText: $followUpText,
-                generator: generator
+                generator: generator,
+                streamGenerator: resultStreamGenerator
             )
             .id(resultViewId)
         } else {

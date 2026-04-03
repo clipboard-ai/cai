@@ -28,8 +28,10 @@ struct ResultView: View {
 
     @FocusState private var isFollowUpFocused: Bool
 
-    /// Async generator that produces the result string.
+    /// Async generator that produces the result string (non-streaming fallback).
     let generator: () async throws -> String
+    /// Optional streaming generator — tokens appear progressively. Used for built-in MLX provider.
+    var streamGenerator: (() async throws -> AsyncThrowingStream<String, Error>)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,18 +54,22 @@ struct ResultView: View {
                 .background(Color.caiDivider)
 
             // Content area
-            ScrollView {
-                if isLoading {
+            if isLoading {
+                VStack {
+                    Spacer()
                     VStack(spacing: 12) {
                         ProgressView()
                             .scaleEffect(0.8)
-                        Text("Processing...")
+                        Text(streamGenerator != nil ? "Thinking..." : "Processing...")
                             .font(.system(size: 12))
                             .foregroundColor(.caiTextSecondary)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 120)
-                    .padding()
-                } else if let error = error {
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: showFollowUpInput ? 160 : 240)
+            } else if let error = error {
+                VStack {
+                    Spacer()
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 24))
@@ -76,11 +82,13 @@ struct ResultView: View {
                             .font(.system(size: 11))
                             .foregroundColor(.caiTextSecondary.opacity(0.5))
                     }
-                    .frame(maxWidth: .infinity, minHeight: 120)
-                    .padding()
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Error: \(error)")
-                } else {
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: showFollowUpInput ? 160 : 240)
+            } else {
+                ScrollView {
                     Text(markdownAttributedString(from: result))
                         .font(.system(size: 13))
                         .foregroundColor(.caiTextPrimary)
@@ -88,8 +96,8 @@ struct ResultView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
                 }
+                .frame(maxHeight: showFollowUpInput ? 160 : 240)
             }
-            .frame(maxHeight: showFollowUpInput ? 160 : 240)
 
             Spacer(minLength: 0)
 
@@ -180,12 +188,26 @@ struct ResultView: View {
         }
         .task {
             do {
-                let output = try await generator()
-                withAnimation(.easeOut(duration: 0.2)) {
-                    result = output
-                    isLoading = false
+                if let streamGen = streamGenerator {
+                    // Streaming: tokens appear progressively
+                    let stream = try await streamGen()
+                    for try await chunk in stream {
+                        if isLoading {
+                            // First token arrived — switch from spinner to text
+                            isLoading = false
+                        }
+                        result += chunk
+                    }
+                    onResult?(result)
+                } else {
+                    // Non-streaming: wait for full response
+                    let output = try await generator()
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        result = output
+                        isLoading = false
+                    }
+                    onResult?(output)
                 }
-                onResult?(output)
             } catch {
                 withAnimation(.easeOut(duration: 0.2)) {
                     self.error = error.localizedDescription

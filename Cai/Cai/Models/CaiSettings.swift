@@ -24,7 +24,7 @@ class CaiSettings: ObservableObject {
         static let launchAtLogin = "cai_launchAtLogin"
         static let shortcuts = "cai_shortcuts"
         static let outputDestinations = "cai_outputDestinations"
-        static let builtInModelPath = "cai_builtInModelPath"
+        static let builtInModelId = "cai_builtInModelId"
         static let builtInSetupDone = "cai_builtInSetupDone"
         static let crashReportingEnabled = "cai_crashReportingEnabled"
         static let crashReportingPromptShown = "cai_crashReportingPromptShown"
@@ -166,9 +166,9 @@ class CaiSettings: ObservableObject {
         }
     }
 
-    /// Path to the downloaded built-in model GGUF file
-    @Published var builtInModelPath: String {
-        didSet { defaults.set(builtInModelPath, forKey: Keys.builtInModelPath) }
+    /// HuggingFace model ID for the built-in MLX model (e.g., "mlx-community/Ministral-3-3B-Instruct-2512-4bit")
+    @Published var builtInModelId: String {
+        didSet { defaults.set(builtInModelId, forKey: Keys.builtInModelId) }
     }
 
     /// Whether the built-in model setup has been completed at least once
@@ -301,7 +301,7 @@ class CaiSettings: ObservableObject {
 
         self.modelName = defaults.string(forKey: Keys.modelName) ?? ""
 
-        self.builtInModelPath = defaults.string(forKey: Keys.builtInModelPath) ?? ""
+        self.builtInModelId = defaults.string(forKey: Keys.builtInModelId) ?? ""
         self.builtInSetupDone = defaults.bool(forKey: Keys.builtInSetupDone)
 
         self.crashReportingEnabled = defaults.bool(forKey: Keys.crashReportingEnabled)
@@ -358,41 +358,25 @@ class CaiSettings: ObservableObject {
             updateLaunchAtLogin(true)
         }
 
-        // Auto-recover: if model file doesn't exist or flags were lost,
-        // scan the models folder for any .gguf and use the first one found.
-        if !builtInSetupDone || builtInModelPath.isEmpty ||
-           !FileManager.default.fileExists(atPath: builtInModelPath) {
-            let models = CaiSettings.scanBuiltInModels()
-            if let first = models.first {
-                let recoveredPath = MLXInference.modelsDirectory
-                    .appendingPathComponent(first).path
-                self.builtInModelPath = recoveredPath
-                self.builtInSetupDone = true
-                defaults.set(recoveredPath, forKey: Keys.builtInModelPath)
-                defaults.set(true, forKey: Keys.builtInSetupDone)
-                print("🔄 Auto-recovered built-in model from disk: \(first)")
-            }
+        // Auto-recover: if model ID is empty but setup was done, use the default model
+        if builtInSetupDone && builtInModelId.isEmpty {
+            self.builtInModelId = MLXInference.defaultModelId
+            defaults.set(MLXInference.defaultModelId, forKey: Keys.builtInModelId)
+            print("🔄 Auto-recovered built-in model ID: \(MLXInference.defaultModelId)")
         }
     }
 
-    // MARK: - Built-In Model Scanning
+    // MARK: - Built-In Model
 
-    /// Returns available built-in models.
-    /// With MLX, models are managed by HubApi cache — the default model ID is all we need.
-    static func scanBuiltInModels() -> [String] {
-        // Legacy GGUF scan (for migration detection)
-        let modelsDir = MLXInference.modelsDirectory
-        if let contents = try? FileManager.default.contentsOfDirectory(atPath: modelsDir.path) {
-            let ggufFiles = contents.filter { $0.hasSuffix(".gguf") && !$0.hasSuffix(".part") }
-            if !ggufFiles.isEmpty { return ggufFiles }
+    /// Returns a display name for the current built-in model ID.
+    /// e.g., "mlx-community/Ministral-3-3B-Instruct-2512-4bit" → "Ministral 3B"
+    var builtInModelDisplayName: String {
+        // Check curated models for a friendly name
+        if let curated = MLXInference.curatedModels.first(where: { $0.id == builtInModelId }) {
+            return curated.name
         }
-        // MLX: return default model ID if setup is done
-        return [ModelDownloader.defaultModel.id]
-    }
-
-    /// Returns the filename component of the current built-in model path.
-    var builtInModelFileName: String {
-        (builtInModelPath as NSString).lastPathComponent
+        // Fallback: extract the last path component of the model ID
+        return builtInModelId.components(separatedBy: "/").last ?? builtInModelId
     }
 
     // MARK: - Provider Auto-Detection
@@ -457,20 +441,14 @@ class CaiSettings: ObservableObject {
                 continue
             }
         }
-        // No external provider found — use built-in if any .gguf model exists on disk
-        let models = CaiSettings.scanBuiltInModels()
-        if let firstModel = models.first {
-            let modelPath = builtInModelPath.isEmpty || !FileManager.default.fileExists(atPath: builtInModelPath)
-                ? MLXInference.modelsDirectory.appendingPathComponent(firstModel).path
-                : builtInModelPath
+        // No external provider found — use built-in MLX if setup was done
+        if builtInSetupDone {
             await MainActor.run {
-                if !builtInSetupDone || builtInModelPath.isEmpty || builtInModelPath != modelPath {
-                    self.builtInModelPath = modelPath
-                    self.builtInSetupDone = true
-                    print("🔄 Auto-recovered built-in model flags from disk")
+                if builtInModelId.isEmpty {
+                    self.builtInModelId = MLXInference.defaultModelId
                 }
                 self.modelProvider = .builtIn
-                print("No external provider — using built-in LLM")
+                print("No external provider — using built-in MLX LLM")
             }
             return
         }
