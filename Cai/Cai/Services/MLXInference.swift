@@ -56,13 +56,13 @@ actor MLXInference {
         id: String,
         progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }
     ) async throws {
-        print("🧠 MLX downloading model: \(id)")
+        print("🧠 MLX loading model: \(id)")
         let container = try await loadModelContainer(
             id: id,
             progressHandler: progressHandler
         )
         self.modelContainer = container
-        print("🧠 MLX model \(id) loaded successfully")
+        print("🧠 MLX model ready: \(id)")
     }
 
     // MARK: - Generate
