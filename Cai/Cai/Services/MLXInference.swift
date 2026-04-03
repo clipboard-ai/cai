@@ -43,8 +43,17 @@ actor MLXInference {
 
     // MARK: - Load Model
 
+    /// Configures MLX memory limits. Called once before first model load.
+    private func configureMemory() {
+        // Set GPU cache limit to prevent unbounded memory growth.
+        // 20MB is recommended for iOS; macOS can use more but we keep it conservative
+        // since Cai is a background utility, not the primary app.
+        MLX.Memory.cacheLimit = 20 * 1024 * 1024
+    }
+
     /// Loads an MLX model from a local directory (already downloaded).
     func loadModel(from directory: URL) async throws {
+        configureMemory()
         print("🧠 MLX loading model from: \(directory.path)")
         let container = try await loadModelContainer(directory: directory)
         self.modelContainer = container
@@ -56,6 +65,7 @@ actor MLXInference {
         id: String,
         progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }
     ) async throws {
+        configureMemory()
         print("🧠 MLX loading model: \(id)")
         let container = try await loadModelContainer(
             id: id,
