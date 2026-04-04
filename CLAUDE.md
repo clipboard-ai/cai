@@ -46,8 +46,8 @@ Cai/Cai/
 │   ├── ContentDetector.swift   # Priority-based content type detection (URL, JSON, Address, Meeting, Word, Image, Short/Long Text)
 │   ├── ActionGenerator.swift   # Generates actions per content type + appends destinations
 │   ├── LLMService.swift        # Actor-based OpenAI-compatible API client
-│   ├── BuiltInLLM.swift        # Actor — manages bundled llama-server subprocess
-│   ├── ModelDownloader.swift   # Downloads GGUF models with progress/resume
+│   ├── MLXInference.swift       # Actor — in-process MLX-Swift inference on Apple Silicon
+│   ├── ModelDownloader.swift   # Downloads MLX models from HuggingFace with progress
 │   ├── CrashReportingService.swift # Opt-in Sentry crash reporting (privacy-first)
 │   ├── OutputDestinationService.swift # Actor-based executor for all destination types
 │   ├── SystemActions.swift     # URL, Maps, Calendar ICS, Search, Clipboard
@@ -84,8 +84,6 @@ Cai/Cai/
     ├── ModelSetupView.swift     # First-launch model download + setup
     ├── AboutView.swift         # About window
     └── VisualEffectBackground.swift  # NSVisualEffectView wrapper
-├── Resources/
-│   └── bin/                    # Bundled llama-server binary + dylibs (llama.cpp b8390, ARM64)
 ```
 
 ## Feature Overview
@@ -94,7 +92,7 @@ Cai/Cai/
 - **[Custom actions](_docs/architecture/ARCHITECTURE.md#custom-shortcuts)**: Prompt (LLM), URL (%s), Shell ({{result}}) types. Shell runs via `/bin/zsh -c`, shows output in ResultView. (Code still uses `CaiShortcut` / `shortcuts` internally.)
 - **[Output destinations](_docs/architecture/ARCHITECTURE.md#output-destinations)**: Email, Notes, Reminders (built-in) + Webhook, AppleScript, Deeplink, Shell (custom). `{{result}}` placeholder, auto-escaped per type.
 - **[Community extensions](_docs/architecture/ARCHITECTURE.md#community-extensions)**: In-app browser (Settings → Browse) + clipboard YAML install. Curated repo: `cai-extensions`. Shell/AppleScript blocked from clipboard install.
-- **[Built-in LLM](_docs/architecture/ARCHITECTURE.md#built-in-llm)**: Bundled llama-server (llama.cpp b8390). Auto-download Ministral 3B. Crash recovery. See also [`_docs/architecture/LLM.md`](_docs/architecture/LLM.md). For updating, see [`_docs/architecture/changelog/LLAMA-UPDATE.md`](_docs/architecture/changelog/LLAMA-UPDATE.md).
+- **[Built-in LLM](_docs/architecture/ARCHITECTURE.md#built-in-llm)**: In-process MLX-Swift inference on Apple Silicon. Auto-download Ministral 3B 4-bit from mlx-community. Curated model picker + custom HuggingFace model support. See also [`_docs/architecture/LLM.md`](_docs/architecture/LLM.md).
 - **[Crash reporting](_docs/architecture/ARCHITECTURE.md#crash-reporting-sentry)**: Opt-in Sentry, disabled by default. No PII.
 - **[MCP connectors](_docs/architecture/MCP.md)**: GitHub, Linear via MCP protocol. Declarative `MCPActionConfig` → generic `MCPFormView`. Config: `~/.config/cai/mcp-servers.json`. Actions always visible for enabled connectors; clicking without API key redirects to Connectors setup. Provider docs: [`_docs/connectors/`](_docs/connectors/).
 - **[Architecture patterns](_docs/architecture/ARCHITECTURE.md#key-architecture-patterns)**: No Sandbox, CGEvent, CaiPanel, PassThrough, keyboard routing, actors.
@@ -169,13 +167,14 @@ See `_docs/process/dmg-assets/BUILD-DMG.md` for the full process.
 - **Sentry** (SPM): [getsentry/sentry-cocoa](https://github.com/getsentry/sentry-cocoa) v8.0.0+ — opt-in crash reporting
 - **Yams** (SPM): [jpsim/Yams](https://github.com/jpsim/Yams) v5.0.0+ — YAML parsing for community extensions
 - **Sparkle** (SPM): [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle) — auto-update framework
-- **llama-server** (bundled): [llama.cpp](https://github.com/ggml-org/llama.cpp) b8390 — local LLM inference engine (ARM64 macOS)
-- **macOS 13.0+** (Ventura) deployment target
+- **MLX-Swift** (SPM): [ml-explore/mlx-swift](https://github.com/ml-explore/mlx-swift) v0.31.3 — Apple Silicon ML framework
+- **MLX-Swift-LM** (SPM): [ml-explore/mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) v2.31.3 — LLM inference layer for MLX
+- **macOS 14.0+** (Sonoma) deployment target
 
 ## Style Guide
 
 - SwiftUI for views, AppKit for window management and system integration
-- Singletons for services (`CaiSettings.shared`, `LLMService.shared`, `OutputDestinationService.shared`, `BuiltInLLM.shared`, `ModelDownloader.shared`, `PermissionsManager.shared`, etc.)
+- Singletons for services (`CaiSettings.shared`, `LLMService.shared`, `OutputDestinationService.shared`, `MLXInference.shared`, `ModelDownloader.shared`, `PermissionsManager.shared`, etc.)
 - `@Published` properties with `didSet` for UserDefaults persistence
 - Notification-based communication between AppKit and SwiftUI layers
 - SF Symbols for all icons

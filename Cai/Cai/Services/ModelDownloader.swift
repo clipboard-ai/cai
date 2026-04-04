@@ -46,7 +46,7 @@ class ModelDownloader: NSObject, ObservableObject {
             self.error = nil
         }
 
-        do {
+        let task = Task {
             try await MLXInference.shared.loadModel(id: model.id) { [weak self] progress in
                 guard let self else { return }
                 let completed = progress.completedUnitCount
@@ -59,6 +59,11 @@ class ModelDownloader: NSObject, ObservableObject {
                     }
                 }
             }
+        }
+        self.downloadTask = task
+
+        do {
+            try await task.value
 
             await MainActor.run {
                 self.isDownloading = false
@@ -67,6 +72,9 @@ class ModelDownloader: NSObject, ObservableObject {
 
             print("⬇️ MLX model downloaded and loaded: \(model.id)")
         } catch {
+            // Don't report cancellation as an error
+            if Task.isCancelled { return }
+
             await MainActor.run {
                 self.isDownloading = false
                 self.error = error.localizedDescription

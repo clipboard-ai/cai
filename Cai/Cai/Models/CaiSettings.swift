@@ -148,15 +148,15 @@ class CaiSettings: ObservableObject {
         }
     }
 
-    /// Actual port the built-in llama-server is running on (set by BuiltInLLM after start).
-    /// Not persisted — defaults to 8690, updated at runtime.
-    var builtInPort: Int = 8690
+    /// True when upgrading from GGUF to MLX — triggers ModelSetupView for download with progress UI.
+    /// Transient (not persisted) — set during init if old `cai_builtInModelPath` key exists.
+    var needsMLXMigration: Bool = false
 
     /// Resolved model base URL based on provider selection
     var modelURL: String {
         switch modelProvider {
         case .builtIn:
-            return "http://127.0.0.1:\(builtInPort)"
+            return ""  // Uses MLXInference in-process, not HTTP
         case .apple:
             return ""  // Uses FoundationModels framework, not HTTP
         case .lmstudio, .ollama:
@@ -363,6 +363,12 @@ class CaiSettings: ObservableObject {
             self.builtInModelId = MLXInference.defaultModelId
             defaults.set(MLXInference.defaultModelId, forKey: Keys.builtInModelId)
             print("🔄 Auto-recovered built-in model ID: \(MLXInference.defaultModelId)")
+        }
+
+        // Detect GGUF→MLX migration: old model path key exists (user had GGUF installed)
+        if builtInSetupDone && defaults.string(forKey: "cai_builtInModelPath") != nil {
+            needsMLXMigration = true
+            print("🔄 GGUF→MLX migration detected — will show setup window for download")
         }
     }
 

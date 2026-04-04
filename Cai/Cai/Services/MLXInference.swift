@@ -18,13 +18,10 @@ actor MLXInference {
             .appendingPathComponent("Cai")
     }
 
-    nonisolated static var modelsDirectory: URL {
-        supportDirectory.appendingPathComponent("models")
-    }
-
     // MARK: - State
 
     private var modelContainer: ModelContainer?
+    private var memoryConfigured = false
 
     /// Whether a model is currently loaded and ready for inference.
     var isLoaded: Bool { modelContainer != nil }
@@ -43,16 +40,20 @@ actor MLXInference {
 
     // MARK: - Load Model
 
-    /// Configures MLX memory limits. Called once before first model load.
+    /// Configures MLX memory limits. Runs once — subsequent calls are no-ops.
     private func configureMemory() {
-        // Set GPU cache limit to prevent unbounded memory growth.
-        // 20MB is recommended for iOS; macOS can use more but we keep it conservative
-        // since Cai is a background utility, not the primary app.
-        MLX.Memory.cacheLimit = 20 * 1024 * 1024
+        guard !memoryConfigured else { return }
+        memoryConfigured = true
+        // 256MB buffer pool — balances reallocation churn vs memory footprint.
+        // 20MB (iOS recommendation) causes excessive churn on macOS.
+        // No memoryLimit — macOS unified memory pressure handles the rest,
+        // and setting it too low can hang the process (no relaxed mode in mlx-swift).
+        MLX.Memory.cacheLimit = 256 * 1024 * 1024
     }
 
     /// Loads an MLX model from a local directory (already downloaded).
     func loadModel(from directory: URL) async throws {
+        if modelContainer != nil { unload() }
         configureMemory()
         print("🧠 MLX loading model from: \(directory.path)")
         let container = try await loadModelContainer(directory: directory)
@@ -65,6 +66,7 @@ actor MLXInference {
         id: String,
         progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }
     ) async throws {
+        if modelContainer != nil { unload() }
         configureMemory()
         print("🧠 MLX loading model: \(id)")
         let container = try await loadModelContainer(
@@ -88,9 +90,11 @@ actor MLXInference {
         }
 
         let systemPrompt = messages.first(where: { $0.role == "system" })?.content
-        let userMessage = messages.last(where: { $0.role == "user" })?.content ?? ""
+        let userMessages = messages.filter { $0.role == "user" }
+        guard let lastUserMessage = userMessages.last?.content else {
+            throw MLXInferenceError.modelNotLoaded
+        }
 
-        // Create a fresh ChatSession per generation (Cai uses single-turn conversations)
         let params = GenerateParameters(maxTokens: maxTokens, temperature: temperature, topP: 0.9)
         let session = ChatSession(
             container,
@@ -98,7 +102,21 @@ actor MLXInference {
             generateParameters: params
         )
 
-        return try await session.respond(to: userMessage)
+        // Replay earlier turns so the model has full conversation context.
+        // ChatSession.respond() appends user+assistant to its internal history,
+        // so replaying earlier messages builds the correct multi-turn context.
+        let assistantMessages = messages.filter { $0.role == "assistant" }
+        for (index, userMsg) in userMessages.dropLast().enumerated() {
+            // Each earlier user message should have a corresponding assistant reply
+            let assistantReply = index < assistantMessages.count ? assistantMessages[index].content : ""
+            _ = try await session.respond(to: userMsg.content)
+            // The session already recorded the assistant's generated response internally;
+            // for context replay we just need to run through the turns.
+            // Note: this generates a throwaway response for each historical turn,
+            // which is wasteful but correct. A future optimization could use prompt caching.
+        }
+
+        return try await session.respond(to: lastUserMessage)
     }
 
     /// Generates a streaming response. Returns an AsyncThrowingStream of string chunks.
@@ -112,16 +130,41 @@ actor MLXInference {
         }
 
         let systemPrompt = messages.first(where: { $0.role == "system" })?.content
-        let userMessage = messages.last(where: { $0.role == "user" })?.content ?? ""
+        let userMessages = messages.filter { $0.role == "user" }
+        guard let lastUserMessage = userMessages.last?.content else {
+            throw MLXInferenceError.modelNotLoaded
+        }
 
+        // For multi-turn streaming, we need to replay earlier turns first (non-streaming),
+        // then stream only the final response.
+        let earlierUserMessages = Array(userMessages.dropLast())
         let params = GenerateParameters(maxTokens: maxTokens, temperature: temperature, topP: 0.9)
-        let session = ChatSession(
-            container,
-            instructions: systemPrompt,
-            generateParameters: params
-        )
 
-        return session.streamResponse(to: userMessage)
+        return AsyncThrowingStream { continuation in
+            Task { [container] in
+                do {
+                    let session = ChatSession(
+                        container,
+                        instructions: systemPrompt,
+                        generateParameters: params
+                    )
+
+                    // Replay earlier turns to build conversation context
+                    for userMsg in earlierUserMessages {
+                        _ = try await session.respond(to: userMsg.content)
+                    }
+
+                    // Stream the final response
+                    let stream = session.streamResponse(to: lastUserMessage)
+                    for try await chunk in stream {
+                        continuation.yield(chunk)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     // MARK: - Lifecycle

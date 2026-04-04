@@ -352,10 +352,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func quitApp() {
-        // Unload the MLX model and stop legacy server before quitting
-        Task { await MLXInference.shared.unload() }
-        // Legacy cleanup removed — MLX unload handles memory
-        NSApplication.shared.terminate(nil)
+        // Unload the MLX model before quitting — await so buffers are released
+        Task {
+            await MLXInference.shared.unload()
+            await MainActor.run {
+                NSApplication.shared.terminate(nil)
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -406,6 +409,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let settings = await MainActor.run { CaiSettings.shared }
             let provider = await MainActor.run { settings.modelProvider }
             let setupDone = await MainActor.run { settings.builtInSetupDone }
+            let modelId = await MainActor.run { settings.builtInModelId }
 
             // First launch — show onboarding so user can choose
             if !setupDone {
@@ -424,13 +428,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            // Built-in MLX — load the model in-process
+            // GGUF→MLX migration: show setup window so user sees download progress
+            let needsMigration = await MainActor.run { settings.needsMLXMigration }
+            if needsMigration && provider == .builtIn {
+                await MainActor.run { [weak self] in
+                    self?.showModelSetupWindow()
+                }
+                return
+            }
+
+            // Built-in MLX — load the user's selected model in-process
             if provider == .builtIn {
+                let selectedId = modelId.isEmpty ? MLXInference.defaultModelId : modelId
                 do {
-                    // Load the default model (HubApi caches it, so second launch is instant)
-                    try await MLXInference.shared.loadModel(
-                        id: ModelDownloader.defaultModel.id
-                    )
+                    try await MLXInference.shared.loadModel(id: selectedId)
                     print("🧠 Built-in MLX model loaded successfully")
                 } catch {
                     print("⚠️ Failed to load built-in MLX model: \(error.localizedDescription)")
@@ -449,12 +460,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
-                // If auto-detect landed on built-in, load the MLX model
+                // If auto-detect landed on built-in, load the user's selected model
                 if newProvider == .builtIn {
+                    let fallbackId = await MainActor.run { settings.builtInModelId }
+                    let selectedId = fallbackId.isEmpty ? MLXInference.defaultModelId : fallbackId
                     do {
-                        try await MLXInference.shared.loadModel(
-                            id: ModelDownloader.defaultModel.id
-                        )
+                        try await MLXInference.shared.loadModel(id: selectedId)
                         print("🧠 Built-in MLX model loaded after auto-detect")
                     } catch {
                         print("⚠️ Failed to load MLX model after auto-detect: \(error.localizedDescription)")

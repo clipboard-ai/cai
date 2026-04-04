@@ -903,8 +903,6 @@ struct ActionListWindow: View {
         let base = name.components(separatedBy: "/").last ?? name
         // Strip common suffixes
         let short = base
-            .replacingOccurrences(of: "-GGUF", with: "")
-            .replacingOccurrences(of: ".gguf", with: "")
             .replacingOccurrences(of: ":latest", with: "")
         // Always truncate to a fixed width so all models look consistent
         if short.count > maxModelNameDisplay {

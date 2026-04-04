@@ -332,10 +332,18 @@ struct ModelSetupView: View {
                 // Download and load the MLX model (MLXInference handles both)
                 try await downloader.download(model: ModelDownloader.defaultModel)
 
-                // Configure settings
+                // Configure settings and clean up legacy GGUF files
                 await MainActor.run {
                     settings.builtInSetupDone = true
                     settings.modelProvider = .builtIn
+
+                    // Clear GGUF→MLX migration state
+                    if settings.needsMLXMigration {
+                        settings.needsMLXMigration = false
+                        UserDefaults.standard.removeObject(forKey: "cai_builtInModelPath")
+                        ModelDownloader.removeLegacyGGUFModels()
+                    }
+
                     phase = .ready
                 }
             } catch {
