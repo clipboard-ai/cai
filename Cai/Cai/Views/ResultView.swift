@@ -189,14 +189,16 @@ struct ResultView: View {
         .task {
             do {
                 if let streamGen = streamGenerator {
-                    // Streaming: tokens appear progressively
+                    // Streaming: each chunk is the CUMULATIVE text so far
+                    // (not a delta). Both MLX ChatSession and Apple FoundationModels
+                    // yield the full response-so-far on each update.
                     let stream = try await streamGen()
                     for try await chunk in stream {
                         if isLoading {
                             // First token arrived — switch from spinner to text
                             isLoading = false
                         }
-                        result += chunk
+                        result = chunk
                     }
                     onResult?(result)
                 } else {

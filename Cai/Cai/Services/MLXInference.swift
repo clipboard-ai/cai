@@ -23,20 +23,14 @@ actor MLXInference {
     private var modelContainer: ModelContainer?
     private var memoryConfigured = false
 
+    // Session reuse: persist ChatSession across follow-up calls to avoid
+    // replaying the full conversation history on each turn.
+    private var currentSession: ChatSession?
+    private var currentSystemPrompt: String?
+    private var currentSessionUserTurnCount: Int = 0
+
     /// Whether a model is currently loaded and ready for inference.
     var isLoaded: Bool { modelContainer != nil }
-
-    // MARK: - Default Model
-
-    /// Default model for first-time setup.
-    static let defaultModelId = "mlx-community/Ministral-3-3B-Instruct-2512-4bit"
-
-    /// Curated models for the settings picker.
-    static let curatedModels: [(id: String, name: String, size: String)] = [
-        ("mlx-community/Ministral-3-3B-Instruct-2512-4bit", "Ministral 3B", "~1.8 GB"),
-        ("mlx-community/Qwen3-4B-4bit", "Qwen3 4B", "~2.5 GB"),
-        ("mlx-community/gemma-3-1b-it-qat-4bit", "Gemma 3 1B", "~0.8 GB"),
-    ]
 
     // MARK: - Load Model
 
@@ -77,14 +71,15 @@ actor MLXInference {
         print("🧠 MLX model ready: \(id)")
     }
 
-    // MARK: - Generate
+    // MARK: - Session Resolution
 
-    /// Generates a complete response (non-streaming). Used by external callers that expect a full string.
-    func generate(
+    /// Resolves whether to reuse the existing ChatSession (follow-up) or create a new one.
+    /// ChatSession maintains internal KV cache across respond() calls, so reusing it
+    /// avoids replaying the full conversation history on each follow-up turn.
+    private func resolveSession(
         messages: [(role: String, content: String)],
-        temperature: Float = 0.3,
-        maxTokens: Int = 1024
-    ) async throws -> String {
+        config: GenerationConfig
+    ) async throws -> (session: ChatSession, lastUserMessage: String) {
         guard let container = modelContainer else {
             throw MLXInferenceError.modelNotLoaded
         }
@@ -95,70 +90,85 @@ actor MLXInference {
             throw MLXInferenceError.modelNotLoaded
         }
 
-        let params = GenerateParameters(maxTokens: maxTokens, temperature: temperature, topP: 0.9)
+        // Follow-up detection: same system prompt + exactly one new user message
+        if let session = currentSession,
+           currentSystemPrompt == systemPrompt,
+           userMessages.count == currentSessionUserTurnCount + 1 {
+            return (session, lastUserMessage)
+        }
+
+        // New conversation — create fresh session with tuned parameters
+        let params = GenerateParameters(
+            maxTokens: config.maxTokens,
+            temperature: config.temperature,
+            topP: config.topP,
+            repetitionPenalty: config.repetitionPenalty
+        )
         let session = ChatSession(
             container,
             instructions: systemPrompt,
             generateParameters: params
         )
 
-        // Replay earlier turns so the model has full conversation context.
-        // ChatSession.respond() appends user+assistant to its internal history,
-        // so replaying earlier messages builds the correct multi-turn context.
-        let assistantMessages = messages.filter { $0.role == "assistant" }
-        for (index, userMsg) in userMessages.dropLast().enumerated() {
-            // Each earlier user message should have a corresponding assistant reply
-            let assistantReply = index < assistantMessages.count ? assistantMessages[index].content : ""
-            _ = try await session.respond(to: userMsg.content)
-            // The session already recorded the assistant's generated response internally;
-            // for context replay we just need to run through the turns.
-            // Note: this generates a throwaway response for each historical turn,
-            // which is wasteful but correct. A future optimization could use prompt caching.
+        currentSession = session
+        currentSystemPrompt = systemPrompt
+        currentSessionUserTurnCount = 0
+
+        // Edge case: session was invalidated mid-conversation (model switch, etc.)
+        // and caller is retrying with the full history. Replay earlier turns.
+        if userMessages.count > 1 {
+            for userMsg in userMessages.dropLast() {
+                _ = try await session.respond(to: userMsg.content)
+                currentSessionUserTurnCount += 1
+            }
         }
 
-        return try await session.respond(to: lastUserMessage)
+        return (session, lastUserMessage)
+    }
+
+    // MARK: - Generate
+
+    /// Generates a complete response (non-streaming).
+    func generate(
+        messages: [(role: String, content: String)],
+        config: GenerationConfig = .default
+    ) async throws -> String {
+        let (session, lastUserMessage) = try await resolveSession(
+            messages: messages, config: config
+        )
+        let result = try await session.respond(to: lastUserMessage)
+        currentSessionUserTurnCount += 1
+        return result
     }
 
     /// Generates a streaming response. Returns an AsyncThrowingStream of string chunks.
     func generateStream(
         messages: [(role: String, content: String)],
-        temperature: Float = 0.3,
-        maxTokens: Int = 1024
+        config: GenerationConfig = .default
     ) throws -> AsyncThrowingStream<String, Error> {
-        guard let container = modelContainer else {
+        guard modelContainer != nil else {
             throw MLXInferenceError.modelNotLoaded
         }
 
-        let systemPrompt = messages.first(where: { $0.role == "system" })?.content
-        let userMessages = messages.filter { $0.role == "user" }
-        guard let lastUserMessage = userMessages.last?.content else {
-            throw MLXInferenceError.modelNotLoaded
-        }
-
-        // For multi-turn streaming, we need to replay earlier turns first (non-streaming),
-        // then stream only the final response.
-        let earlierUserMessages = Array(userMessages.dropLast())
-        let params = GenerateParameters(maxTokens: maxTokens, temperature: temperature, topP: 0.9)
-
+        let capturedMessages = messages
         return AsyncThrowingStream { continuation in
-            Task { [container] in
+            Task {
                 do {
-                    let session = ChatSession(
-                        container,
-                        instructions: systemPrompt,
-                        generateParameters: params
+                    let (session, lastUserMessage) = try await self.resolveSession(
+                        messages: capturedMessages, config: config
                     )
-
-                    // Replay earlier turns to build conversation context
-                    for userMsg in earlierUserMessages {
-                        _ = try await session.respond(to: userMsg.content)
-                    }
-
-                    // Stream the final response
+                    // MLX ChatSession.streamResponse yields DELTAS (just the new tokens).
+                    // We accumulate and yield CUMULATIVE strings so ResultView can consume
+                    // them uniformly — matching Apple FoundationModels' `partial.content` format.
                     let stream = session.streamResponse(to: lastUserMessage)
-                    for try await chunk in stream {
-                        continuation.yield(chunk)
+                    var accumulated = ""
+                    for try await delta in stream {
+                        accumulated += delta
+                        continuation.yield(accumulated)
                     }
+                    // Only count the turn after stream completes successfully.
+                    // If cancelled mid-stream, the mismatch triggers a fresh session next time.
+                    self.currentSessionUserTurnCount += 1
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -172,6 +182,9 @@ actor MLXInference {
     /// Unloads the model and frees memory.
     func unload() {
         modelContainer = nil
+        currentSession = nil
+        currentSystemPrompt = nil
+        currentSessionUserTurnCount = 0
         print("🧠 MLX model unloaded")
     }
 }

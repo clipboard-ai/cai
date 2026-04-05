@@ -12,6 +12,59 @@ struct ChatMessage: Encodable {
     let content: String
 }
 
+// MARK: - Generation Config
+
+/// Per-action generation parameters. Different actions benefit from different
+/// sampling settings — translations want deterministic output, creative prompts
+/// want higher temperature, etc.
+///
+/// Only MLX uses all parameters. Apple FoundationModels handles sampling
+/// internally and ignores these values — that's fine, the config is passed
+/// uniformly and each provider uses what it can.
+struct GenerationConfig {
+    var temperature: Float
+    var topP: Float
+    var maxTokens: Int
+    /// Penalty factor for repeating tokens (MLX only). nil = model default.
+    /// Intentionally unset — testing with Ministral 3B showed 1.1 caused token
+    /// corruption in some outputs. Safer to rely on model defaults.
+    var repetitionPenalty: Float?
+
+    static let `default` = GenerationConfig(
+        temperature: 0.3, topP: 0.9, maxTokens: 1024, repetitionPenalty: nil
+    )
+
+    /// Returns tuned parameters for a given LLM action.
+    /// Rationale per action:
+    /// - Translate/Proofread: 0.0 — deterministic, same input → same output
+    /// - Define: 0.1, focused budget — short factual
+    /// - Summarize: 0.3 — factual with room for phrasing variation
+    /// - Explain: 0.3 — some phrasing variation
+    /// - Reply: 0.5 — natural tone variation
+    /// - Custom: 0.6 — user intent varies, allow creativity
+    ///
+    /// maxTokens are generous to avoid mid-sentence truncation. Small models
+    /// rarely approach the limit; the cost of being generous is negligible.
+    static func forAction(_ action: LLMAction) -> GenerationConfig {
+        switch action {
+        case .translate:
+            return GenerationConfig(temperature: 0.0, topP: 0.9, maxTokens: 800, repetitionPenalty: nil)
+        case .proofread:
+            return GenerationConfig(temperature: 0.0, topP: 0.9, maxTokens: 800, repetitionPenalty: nil)
+        case .define:
+            return GenerationConfig(temperature: 0.1, topP: 0.9, maxTokens: 300, repetitionPenalty: nil)
+        case .summarize:
+            return GenerationConfig(temperature: 0.3, topP: 0.9, maxTokens: 600, repetitionPenalty: nil)
+        case .explain:
+            return GenerationConfig(temperature: 0.3, topP: 0.9, maxTokens: 600, repetitionPenalty: nil)
+        case .reply:
+            return GenerationConfig(temperature: 0.5, topP: 0.9, maxTokens: 500, repetitionPenalty: nil)
+        case .custom:
+            return GenerationConfig(temperature: 0.6, topP: 0.95, maxTokens: 1024, repetitionPenalty: nil)
+        }
+    }
+}
+
 // MARK: - LLM Service
 
 /// Communicates with a local OpenAI-compatible API (LM Studio, Ollama, etc.)
@@ -23,6 +76,12 @@ actor LLMService {
     /// Cached model name from the last successful status check.
     /// Used in generate() requests — some providers (LM Studio) require it.
     private var cachedModelName: String?
+
+    // Apple FM session reuse — mirrors the MLX session pattern.
+    // Storage uses Any? because LanguageModelSession is only available on macOS 26+.
+    private var appleSessionStorage: Any?
+    private var appleSessionSystemPrompt: String?
+    private var appleSessionUserTurnCount: Int = 0
 
     /// Applies the API key as a Bearer token if one is configured.
     private func applyAuth(to request: inout URLRequest) async {
@@ -167,7 +226,7 @@ actor LLMService {
             )
         case .proofread:
             return (
-                system: "You are a proofreader.\(context) Fix grammar, spelling, and punctuation errors. Keep the original meaning, tone, and style. Output only the corrected text \u{2014} no explanations, no comments. Do not use any markdown formatting (no **, no *, no #, no `).",
+                system: "You are a proofreader.\(context) Fix ALL grammar errors including pronoun case (he/I not him/me), capitalization, and agreement. Never preserve errors. Keep the original meaning and tone. Output only the corrected text \u{2014} no explanations, no markdown.",
                 user: "Proofread and return only the corrected version:\n\n\(text)"
             )
         case .custom(let instruction):
@@ -182,12 +241,16 @@ actor LLMService {
 
     /// Sends a pre-built messages array to the chat completions endpoint.
     /// Used by follow-up conversations where the caller manages message history.
-    func generateWithMessages(_ messages: [ChatMessage]) async throws -> String {
+    /// `config` lets callers tune generation parameters per action (see `GenerationConfig.forAction`).
+    func generateWithMessages(
+        _ messages: [ChatMessage],
+        config: GenerationConfig = .default
+    ) async throws -> String {
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
 
         // Built-in MLX — route to in-process MLX inference
         if provider == .builtIn {
-            return try await generateWithMLX(messages)
+            return try await generateWithMLX(messages, config: config)
         }
 
         // Apple Intelligence — route to on-device FoundationModels
@@ -326,27 +389,30 @@ actor LLMService {
     // MARK: - Built-in MLX Inference
 
     /// Generates a response using the built-in MLX model (in-process, no subprocess).
-    private func generateWithMLX(_ messages: [ChatMessage]) async throws -> String {
+    private func generateWithMLX(_ messages: [ChatMessage], config: GenerationConfig) async throws -> String {
         guard await MLXInference.shared.isLoaded else {
-            throw LLMError.connectionFailed
+            throw LLMError.builtInModelNotLoaded
         }
 
         let tuples = messages.map { (role: $0.role, content: $0.content) }
-        return try await MLXInference.shared.generate(messages: tuples)
+        return try await MLXInference.shared.generate(messages: tuples, config: config)
     }
 
     /// Returns a streaming response from the built-in MLX model.
     /// Used by ResultView for progressive token display.
-    func generateStreamingWithMessages(_ messages: [ChatMessage]) async throws -> AsyncThrowingStream<String, Error> {
+    func generateStreamingWithMessages(
+        _ messages: [ChatMessage],
+        config: GenerationConfig = .default
+    ) async throws -> AsyncThrowingStream<String, Error> {
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
 
         // Built-in MLX — native streaming
         if provider == .builtIn {
             guard await MLXInference.shared.isLoaded else {
-                throw LLMError.connectionFailed
+                throw LLMError.builtInModelNotLoaded
             }
             let tuples = messages.map { (role: $0.role, content: $0.content) }
-            return try await MLXInference.shared.generateStream(messages: tuples)
+            return try await MLXInference.shared.generateStream(messages: tuples, config: config)
         }
 
         // Apple Intelligence — streaming via FoundationModels
@@ -357,7 +423,7 @@ actor LLMService {
         #endif
 
         // External providers (LM Studio, Ollama, custom): wrap full response as single-element stream
-        let fullResponse = try await generateWithMessages(messages)
+        let fullResponse = try await generateWithMessages(messages, config: config)
         return AsyncThrowingStream { continuation in
             continuation.yield(fullResponse)
             continuation.finish()
@@ -382,78 +448,92 @@ actor LLMService {
         return Status(available: false, modelName: nil, error: "Requires macOS 26+")
     }
 
+    /// Resolves the Apple FM session: reuses existing session for follow-ups,
+    /// creates a fresh one when the system prompt changes (new action).
+    /// Mirrors the MLX session reuse pattern.
+    #if canImport(FoundationModels)
+    @available(macOS 26, *)
+    private func resolveAppleFMSession(
+        messages: [ChatMessage]
+    ) throws -> (session: LanguageModelSession, lastUserMessage: String) {
+        let model = SystemLanguageModel.default
+        guard model.availability == .available else {
+            throw LLMError.appleIntelligenceUnavailable
+        }
+
+        let systemPrompt = messages.first(where: { $0.role == "system" })?.content ?? ""
+        let userMessages = messages.filter { $0.role == "user" }
+        guard let lastUserMessage = userMessages.last?.content else {
+            throw LLMError.emptyResponse
+        }
+
+        // Follow-up detection: same system prompt + exactly one new user message
+        if let existing = appleSessionStorage as? LanguageModelSession,
+           appleSessionSystemPrompt == systemPrompt,
+           userMessages.count == appleSessionUserTurnCount + 1 {
+            return (existing, lastUserMessage)
+        }
+
+        // New conversation — create fresh session
+        let session = LanguageModelSession(instructions: systemPrompt)
+        appleSessionStorage = session
+        appleSessionSystemPrompt = systemPrompt
+        appleSessionUserTurnCount = 0
+
+        return (session, lastUserMessage)
+    }
+
+    /// Maps Apple FM errors to LLMError cases. Handles guardrail violations,
+    /// context-window-exceeded, and other known cases.
+    @available(macOS 26, *)
+    private func mapAppleFMError(_ error: Error) -> Error {
+        // String-based matching to be resilient across Apple's API evolution.
+        let description = String(describing: error).lowercased()
+        if description.contains("guardrail") || description.contains("refusal") ||
+           description.contains("content") && description.contains("polic") {
+            return LLMError.contentFiltered
+        }
+        return error
+    }
+    #endif
+
     /// Generates a response using Apple's on-device Foundation Models.
-    /// Creates a fresh session per request. For follow-ups, replays the conversation
-    /// so the session builds up context via its built-in transcript.
+    /// Reuses the session across follow-ups to avoid replaying earlier turns.
     private func generateWithAppleFM(_ messages: [ChatMessage]) async throws -> String {
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
-            let model = SystemLanguageModel.default
-            guard model.availability == .available else {
-                throw LLMError.appleIntelligenceUnavailable
+            let (session, lastUserMessage) = try resolveAppleFMSession(messages: messages)
+            do {
+                let response = try await session.respond(to: lastUserMessage)
+                appleSessionUserTurnCount += 1
+                return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                throw mapAppleFMError(error)
             }
-
-            // Extract system prompt (instructions) from messages
-            let systemPrompt = messages.first(where: { $0.role == "system" })?.content ?? ""
-            let session = LanguageModelSession(instructions: systemPrompt)
-
-            // Collect user messages in order
-            let userMessages = messages.filter { $0.role == "user" }
-            guard !userMessages.isEmpty else {
-                throw LLMError.emptyResponse
-            }
-
-            // For follow-ups, replay earlier user messages to build session context.
-            // Each respond() call adds to the session transcript automatically.
-            if userMessages.count > 1 {
-                for userMsg in userMessages.dropLast() {
-                    _ = try await session.respond(to: userMsg.content)
-                }
-            }
-
-            // Send the final (or only) user message
-            let response = try await session.respond(to: userMessages.last!.content)
-            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         #endif
         throw LLMError.appleIntelligenceUnavailable
     }
 
     /// Streams a response using Apple's on-device Foundation Models.
+    /// Reuses the session across follow-ups.
     private func streamWithAppleFM(_ messages: [ChatMessage]) async throws -> AsyncThrowingStream<String, Error> {
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
-            let model = SystemLanguageModel.default
-            guard model.availability == .available else {
-                throw LLMError.appleIntelligenceUnavailable
-            }
-
-            let systemPrompt = messages.first(where: { $0.role == "system" })?.content ?? ""
-            let session = LanguageModelSession(instructions: systemPrompt)
-
-            let userMessages = messages.filter { $0.role == "user" }
-            guard !userMessages.isEmpty else {
-                throw LLMError.emptyResponse
-            }
-
-            // Replay earlier messages for follow-ups
-            if userMessages.count > 1 {
-                for userMsg in userMessages.dropLast() {
-                    _ = try await session.respond(to: userMsg.content)
-                }
-            }
-
-            let prompt = userMessages.last!.content
+            let (session, lastUserMessage) = try resolveAppleFMSession(messages: messages)
             return AsyncThrowingStream { continuation in
                 Task {
                     do {
-                        let stream = session.streamResponse(to: prompt)
+                        let stream = session.streamResponse(to: lastUserMessage)
                         for try await partial in stream {
                             continuation.yield(partial.content)
                         }
+                        // Only count the turn after stream completes successfully.
+                        // If cancelled mid-stream, the mismatch triggers a fresh session next time.
+                        self.appleSessionUserTurnCount += 1
                         continuation.finish()
                     } catch {
-                        continuation.finish(throwing: error)
+                        continuation.finish(throwing: self.mapAppleFMError(error))
                     }
                 }
             }
@@ -493,7 +573,9 @@ enum LLMError: LocalizedError {
     case emptyResponse
     case connectionFailed
     case timeout
+    case builtInModelNotLoaded
     case appleIntelligenceUnavailable
+    case contentFiltered
 
     var errorDescription: String? {
         switch self {
@@ -507,10 +589,14 @@ enum LLMError: LocalizedError {
             return "Empty response from model."
         case .connectionFailed:
             return "Could not connect to LLM server. Is it running?"
+        case .builtInModelNotLoaded:
+            return "No AI model is loaded. Please download a model in Settings."
         case .timeout:
             return "Request timed out. Is your LLM server running?"
         case .appleIntelligenceUnavailable:
             return "Apple Intelligence requires macOS 26+ with Apple Intelligence enabled."
+        case .contentFiltered:
+            return "Apple Intelligence declined this request due to content policy. Try the built-in AI or an external provider."
         }
     }
 }

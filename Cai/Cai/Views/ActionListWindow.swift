@@ -35,6 +35,8 @@ struct ActionListWindow: View {
     @State private var resultViewId: Int = 0
     @State private var isNewAction: Bool = false
     @State private var shortcutDisplayName: String?
+    /// Generation config for the active conversation — reused across follow-ups.
+    @State private var activeConfig: GenerationConfig = .default
 
     // Extension install confirmation
     @State private var showExtensionConfirm: Bool = false
@@ -508,8 +510,12 @@ struct ActionListWindow: View {
         let trimmed = followUpText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        conversationHistory.append(ChatMessage(role: "user", content: trimmed))
+        // Prepend a small reinforcement to keep facts stable across turns.
+        // Helps small models avoid number/fact drift during multi-turn conversations.
+        let reinforced = "Keep all facts and numbers exact from your previous reply. \(trimmed)"
+        conversationHistory.append(ChatMessage(role: "user", content: reinforced))
         let messages = conversationHistory
+        let config = activeConfig
 
         showFollowUpInput = false
         followUpText = ""
@@ -517,10 +523,10 @@ struct ActionListWindow: View {
         WindowController.passThrough = false
 
         resultGenerator = {
-            return try await LLMService.shared.generateWithMessages(messages)
+            return try await LLMService.shared.generateWithMessages(messages, config: config)
         }
         resultStreamGenerator = {
-            return try await LLMService.shared.generateStreamingWithMessages(messages)
+            return try await LLMService.shared.generateStreamingWithMessages(messages, config: config)
         }
         resultViewId += 1
     }
@@ -783,7 +789,7 @@ struct ActionListWindow: View {
         Menu {
             if settings.modelProvider == .builtIn {
                 // Built-in MLX: show curated models
-                ForEach(MLXInference.curatedModels, id: \.id) { model in
+                ForEach(ModelCatalog.curatedModels, id: \.id) { model in
                     Button(action: {
                         guard model.id != settings.builtInModelId else { return }
                         switchBuiltInModel(to: model.id, displayName: model.name)
@@ -855,11 +861,23 @@ struct ActionListWindow: View {
     }
 
     private func switchBuiltInModel(to newId: String, displayName: String) {
+        let previousId = settings.builtInModelId
         isSwitchingModel = true
         currentModelName = displayName
         Task {
             settings.builtInModelId = newId
-            try? await MLXInference.shared.loadModel(id: newId)
+            do {
+                try await MLXInference.shared.loadModel(id: newId)
+            } catch {
+                // Revert to previous model on failure
+                await MainActor.run {
+                    settings.builtInModelId = previousId
+                }
+                NotificationCenter.default.post(
+                    name: .caiShowToast, object: nil,
+                    userInfo: ["message": "Failed to switch model"]
+                )
+            }
             await MainActor.run {
                 isSwitchingModel = false
             }
@@ -1011,13 +1029,15 @@ struct ActionListWindow: View {
 
             let prompts = LLMService.prompts(for: llmAction, text: clipboardText, appContext: app)
             let initialMessages = buildInitialMessages(systemPrompt: prompts.system, userPrompt: prompts.user)
+            let config = GenerationConfig.forAction(llmAction)
             conversationHistory = initialMessages
+            activeConfig = config
             isFollowUpEnabled = true
 
             showResultView(title: title, generator: {
-                return try await LLMService.shared.generateWithMessages(initialMessages)
+                return try await LLMService.shared.generateWithMessages(initialMessages, config: config)
             }, streamGenerator: {
-                return try await LLMService.shared.generateStreamingWithMessages(initialMessages)
+                return try await LLMService.shared.generateStreamingWithMessages(initialMessages, config: config)
             })
 
         case .customPrompt:
@@ -1105,18 +1125,22 @@ struct ActionListWindow: View {
         showCustomPrompt = false
         shortcutDisplayName = nil
 
+        // Custom prompts use the .custom config (temperature 0.6, allowing creativity)
+        let config = GenerationConfig.forAction(.custom(instruction))
+
         if isNewAction || text.isEmpty {
             // New action mode — no clipboard context, general assistant
             let systemPrompt = "You are a helpful assistant. Answer clearly and concisely. For math, use Unicode symbols."
             let initialMessages = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: instruction)
             conversationHistory = initialMessages
+            activeConfig = config
             isFollowUpEnabled = true
             isNewAction = false
 
             showResultView(title: instruction, generator: {
-                return try await LLMService.shared.generateWithMessages(initialMessages)
+                return try await LLMService.shared.generateWithMessages(initialMessages, config: config)
             }, streamGenerator: {
-                return try await LLMService.shared.generateStreamingWithMessages(initialMessages)
+                return try await LLMService.shared.generateStreamingWithMessages(initialMessages, config: config)
             })
         } else {
             // Existing custom action flow — clipboard text as context
@@ -1126,12 +1150,13 @@ struct ActionListWindow: View {
             let prompts = LLMService.prompts(for: .custom(instruction), text: clipboardText, appContext: app)
             let initialMessages = buildInitialMessages(systemPrompt: prompts.system, userPrompt: prompts.user)
             conversationHistory = initialMessages
+            activeConfig = config
             isFollowUpEnabled = true
 
             showResultView(title: instruction, generator: {
-                return try await LLMService.shared.generateWithMessages(initialMessages)
+                return try await LLMService.shared.generateWithMessages(initialMessages, config: config)
             }, streamGenerator: {
-                return try await LLMService.shared.generateStreamingWithMessages(initialMessages)
+                return try await LLMService.shared.generateStreamingWithMessages(initialMessages, config: config)
             })
         }
     }

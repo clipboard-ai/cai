@@ -377,11 +377,12 @@ struct SettingsView: View {
     @State private var selectedModelId: String = ""
     @State private var customModelId: String = ""
     @State private var isDownloadingModel: Bool = false
+    @State private var modelError: String?
 
     @ViewBuilder
     private var builtInModelSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Current model
+            // Current model — with inline Delete button (scoped to this model)
             if !settings.builtInModelId.isEmpty {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -390,6 +391,14 @@ struct SettingsView: View {
                     Text(settings.builtInModelDisplayName)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.caiTextPrimary)
+                    Button("Delete") {
+                        deleteBuiltInModel()
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.red.opacity(0.8))
+                    .buttonStyle(.plain)
+                    .padding(.leading, 4)
+                    Spacer()
                 }
             }
 
@@ -397,7 +406,7 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 Picker("", selection: $selectedModelId) {
                     Text("Select a model...").tag("")
-                    ForEach(MLXInference.curatedModels, id: \.id) { model in
+                    ForEach(ModelCatalog.curatedModels, id: \.id) { model in
                         Text("\(model.name) (\(model.size))").tag(model.id)
                     }
                     Divider()
@@ -452,6 +461,14 @@ struct SettingsView: View {
                 }
             }
 
+            // Error display
+            if let error = modelError {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiError)
+                    .lineLimit(2)
+            }
+
             HStack(spacing: 0) {
                 Text("Powered by MLX on Apple Silicon · ")
                     .font(.system(size: 10))
@@ -471,7 +488,20 @@ struct SettingsView: View {
 
     private func downloadAndSwitchModel(id: String) {
         isDownloadingModel = true
+        modelError = nil
         Task {
+            // Check disk space before attempting download
+            if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+               let available = attrs[.systemFreeSize] as? Int64,
+               available < 2_000_000_000 { // 2GB minimum for model + extraction
+                await MainActor.run {
+                    isDownloadingModel = false
+                    let availStr = ByteCountFormatter.string(fromByteCount: available, countStyle: .file)
+                    modelError = "Not enough disk space (\(availStr) available). Need at least 2 GB."
+                }
+                return
+            }
+
             do {
                 try await MLXInference.shared.loadModel(id: id)
                 await MainActor.run {
@@ -480,14 +510,41 @@ struct SettingsView: View {
                     isDownloadingModel = false
                     customModelId = ""
                     selectedModelId = id
+                    modelError = nil
                 }
                 forceCheckLLMStatus()
             } catch {
                 await MainActor.run {
                     isDownloadingModel = false
+                    modelError = error.localizedDescription
                 }
-                print("⚠️ Failed to download model: \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func deleteBuiltInModel() {
+        let modelId = settings.builtInModelId
+        guard !modelId.isEmpty else { return }
+
+        Task {
+            // Unload model first
+            await MLXInference.shared.unload()
+
+            // Clear HuggingFace cache for this model
+            let sanitizedId = modelId.replacingOccurrences(of: "/", with: "--")
+            let cachePath = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".cache/huggingface/hub/models--\(sanitizedId)")
+            if FileManager.default.fileExists(atPath: cachePath.path) {
+                try? FileManager.default.removeItem(at: cachePath)
+                print("🗑️ Deleted model cache: \(cachePath.path)")
+            }
+
+            await MainActor.run {
+                settings.builtInSetupDone = false
+                settings.builtInModelId = ""
+                selectedModelId = ""
+            }
+            forceCheckLLMStatus()
         }
     }
 

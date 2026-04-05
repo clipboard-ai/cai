@@ -362,9 +362,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Unload MLX model to free memory
+        // Safety net: unload MLX model if process is killed without going through quitApp()
         Task { await MLXInference.shared.unload() }
-        // Legacy cleanup removed — MLX unload handles memory
 
         // Disconnect all MCP servers
         Task { await MCPClientService.shared.disconnectAll() }
@@ -439,12 +438,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             // Built-in MLX — load the user's selected model in-process
             if provider == .builtIn {
-                let selectedId = modelId.isEmpty ? MLXInference.defaultModelId : modelId
+                let selectedId = modelId.isEmpty ? ModelCatalog.defaultModelId : modelId
                 do {
                     try await MLXInference.shared.loadModel(id: selectedId)
                     print("🧠 Built-in MLX model loaded successfully")
                 } catch {
                     print("⚠️ Failed to load built-in MLX model: \(error.localizedDescription)")
+                    await MainActor.run {
+                        NotificationCenter.default.post(
+                            name: .caiShowToast, object: nil,
+                            userInfo: ["message": "Failed to load AI model. Check Settings."]
+                        )
+                    }
                 }
                 return
             }
@@ -463,12 +468,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // If auto-detect landed on built-in, load the user's selected model
                 if newProvider == .builtIn {
                     let fallbackId = await MainActor.run { settings.builtInModelId }
-                    let selectedId = fallbackId.isEmpty ? MLXInference.defaultModelId : fallbackId
+                    let selectedId = fallbackId.isEmpty ? ModelCatalog.defaultModelId : fallbackId
                     do {
                         try await MLXInference.shared.loadModel(id: selectedId)
                         print("🧠 Built-in MLX model loaded after auto-detect")
                     } catch {
                         print("⚠️ Failed to load MLX model after auto-detect: \(error.localizedDescription)")
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: .caiShowToast, object: nil,
+                                userInfo: ["message": "Failed to load AI model. Check Settings."]
+                            )
+                        }
                     }
                 }
             }

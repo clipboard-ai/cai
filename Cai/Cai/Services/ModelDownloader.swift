@@ -38,6 +38,16 @@ class ModelDownloader: NSObject, ObservableObject {
     /// Downloads an MLX model from HuggingFace and loads it into MLXInference.
     /// Progress is tracked via @Published properties for the UI.
     func download(model: ModelInfo) async throws {
+        // Check available disk space before starting download
+        let requiredSpace = model.sizeBytes + 500_000_000 // model + 500MB buffer
+        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+           let available = attrs[.systemFreeSize] as? Int64,
+           available < requiredSpace {
+            throw ModelDownloadError.insufficientDiskSpace(
+                needed: model.sizeBytes, available: available
+            )
+        }
+
         await MainActor.run {
             self.isDownloading = true
             self.progress = 0
@@ -114,17 +124,23 @@ class ModelDownloader: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Model Scanning
+}
 
-    /// Scans for available MLX model directories in the HuggingFace cache.
-    /// MLX models are directories containing a config.json file.
-    static func availableMLXModels() -> [String] {
-        // HubApi caches to ~/.cache/huggingface/hub/models--{org}--{name}/
-        // The actual model files are in snapshots/{revision}/
-        // We don't need to scan these — MLXInference.loadModel handles cache resolution.
-        // This method is for future use in a model picker.
-        return []
-    }
+// MARK: - Model Catalog
+
+/// Curated model list and default model ID. Configuration data — separate from inference.
+enum ModelCatalog {
+
+    /// Default model for first-time setup.
+    static let defaultModelId = "mlx-community/Ministral-3-3B-Instruct-2512-4bit"
+
+    /// Curated models for the settings picker.
+    static let curatedModels: [(id: String, name: String, size: String)] = [
+        ("mlx-community/Ministral-3-3B-Instruct-2512-4bit", "Ministral 3B", "~1.8 GB"),
+        ("mlx-community/Qwen3-4B-4bit", "Qwen3 4B", "~2.5 GB"),
+        ("mlx-community/gemma-3-1b-it-qat-4bit", "Gemma 3 1B", "~0.8 GB"),
+        ("mlx-community/Qwen2.5-7B-Instruct-4bit", "Qwen 2.5 7B (16 GB+ RAM)", "~4.3 GB"),
+    ]
 }
 
 // MARK: - Model Info

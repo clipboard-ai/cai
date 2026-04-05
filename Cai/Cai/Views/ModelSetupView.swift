@@ -54,9 +54,31 @@ struct ModelSetupView: View {
             appleIntelligenceAvailable = Self.isAppleIntelligenceAvailable()
 
             // If setup was already completed (download finished in background),
-            // show the ready state.
+            // show the ready state AND ensure the MLX model is actually loaded.
             if settings.builtInSetupDone && settings.modelProvider == .builtIn {
                 phase = .ready
+                // Defensive: if setup is marked done but model isn't in memory yet
+                // (e.g., partial migration state), load it now.
+                Task {
+                    let isLoaded = await MLXInference.shared.isLoaded
+                    if !isLoaded && !settings.builtInModelId.isEmpty {
+                        do {
+                            try await MLXInference.shared.loadModel(id: settings.builtInModelId)
+                            print("🧠 MLX model loaded from ready phase")
+                            // Clean up any stale migration state
+                            await MainActor.run {
+                                if settings.needsMLXMigration {
+                                    settings.needsMLXMigration = false
+                                    UserDefaults.standard.removeObject(forKey: "cai_builtInModelPath")
+                                    ModelDownloader.removeLegacyGGUFModels()
+                                }
+                            }
+                        } catch {
+                            print("⚠️ Failed to load MLX model from ready phase: \(error.localizedDescription)")
+                            await MainActor.run { phase = .error }
+                        }
+                    }
+                }
             } else if settings.builtInSetupDone && settings.modelProvider == .apple {
                 phase = .ready
             } else if downloader.isDownloading {

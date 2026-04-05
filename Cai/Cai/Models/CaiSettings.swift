@@ -358,17 +358,27 @@ class CaiSettings: ObservableObject {
             updateLaunchAtLogin(true)
         }
 
+        // Snapshot state BEFORE auto-recovery so we can detect genuine migration
+        // vs. a user who has already successfully migrated to MLX.
+        let hadExplicitMLXId = !builtInModelId.isEmpty
+        let hadLegacyGGUFKey = defaults.string(forKey: "cai_builtInModelPath") != nil
+
         // Auto-recover: if model ID is empty but setup was done, use the default model
         if builtInSetupDone && builtInModelId.isEmpty {
-            self.builtInModelId = MLXInference.defaultModelId
-            defaults.set(MLXInference.defaultModelId, forKey: Keys.builtInModelId)
-            print("🔄 Auto-recovered built-in model ID: \(MLXInference.defaultModelId)")
+            self.builtInModelId = ModelCatalog.defaultModelId
+            defaults.set(ModelCatalog.defaultModelId, forKey: Keys.builtInModelId)
+            print("🔄 Auto-recovered built-in model ID: \(ModelCatalog.defaultModelId)")
         }
 
-        // Detect GGUF→MLX migration: old model path key exists (user had GGUF installed)
-        if builtInSetupDone && defaults.string(forKey: "cai_builtInModelPath") != nil {
+        // GGUF→MLX migration detection: only if user had GGUF AND never set up MLX.
+        // If they already have an explicit MLX model ID, they've migrated — clean up the stale key.
+        if builtInSetupDone && hadLegacyGGUFKey && !hadExplicitMLXId {
             needsMLXMigration = true
             print("🔄 GGUF→MLX migration detected — will show setup window for download")
+        } else if hadLegacyGGUFKey && hadExplicitMLXId {
+            // User already migrated via Settings download path — clean up stale GGUF key
+            defaults.removeObject(forKey: "cai_builtInModelPath")
+            print("🧹 Cleaned up stale GGUF path key (user already on MLX)")
         }
     }
 
@@ -378,7 +388,7 @@ class CaiSettings: ObservableObject {
     /// e.g., "mlx-community/Ministral-3-3B-Instruct-2512-4bit" → "Ministral 3B"
     var builtInModelDisplayName: String {
         // Check curated models for a friendly name
-        if let curated = MLXInference.curatedModels.first(where: { $0.id == builtInModelId }) {
+        if let curated = ModelCatalog.curatedModels.first(where: { $0.id == builtInModelId }) {
             return curated.name
         }
         // Fallback: extract the last path component of the model ID
@@ -451,7 +461,7 @@ class CaiSettings: ObservableObject {
         if builtInSetupDone {
             await MainActor.run {
                 if builtInModelId.isEmpty {
-                    self.builtInModelId = MLXInference.defaultModelId
+                    self.builtInModelId = ModelCatalog.defaultModelId
                 }
                 self.modelProvider = .builtIn
                 print("No external provider — using built-in MLX LLM")
