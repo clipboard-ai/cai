@@ -241,6 +241,27 @@ actor LLMService {
         }
     }
 
+    // MARK: - Input Truncation
+
+    /// Maximum characters per message sent to the LLM. ~12.5K tokens for English text,
+    /// well under Ministral 3B's 32K context window. Prevents memory pressure / OOM
+    /// on 8GB Macs and cryptic context-window errors when users paste huge documents.
+    /// Apple Intelligence (4K token limit) will still hit its own ceiling for content
+    /// over ~12K chars and surface a contentFiltered/length error from its side.
+    private static let maxMessageChars: Int = 50_000
+
+    /// Truncates each message's content to `maxMessageChars`. Logs when truncation occurs.
+    /// Applied at this single chokepoint so all providers (MLX, Apple FM, external HTTP)
+    /// get the same behavior automatically.
+    private static func truncateMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
+        return messages.map { msg in
+            guard msg.content.count > maxMessageChars else { return msg }
+            print("✂️ Truncating LLM \(msg.role) message: \(msg.content.count) → \(maxMessageChars) chars")
+            let truncated = String(msg.content.prefix(maxMessageChars))
+            return ChatMessage(role: msg.role, content: truncated)
+        }
+    }
+
     // MARK: - Generation
 
     /// Sends a pre-built messages array to the chat completions endpoint.
@@ -250,6 +271,7 @@ actor LLMService {
         _ messages: [ChatMessage],
         config: GenerationConfig = .default
     ) async throws -> String {
+        let messages = Self.truncateMessages(messages)
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
 
         // Built-in MLX — route to in-process MLX inference
@@ -408,6 +430,7 @@ actor LLMService {
         _ messages: [ChatMessage],
         config: GenerationConfig = .default
     ) async throws -> AsyncThrowingStream<String, Error> {
+        let messages = Self.truncateMessages(messages)
         let provider = await MainActor.run { CaiSettings.shared.modelProvider }
 
         // Built-in MLX — native streaming
