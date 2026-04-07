@@ -20,9 +20,9 @@ class ModelDownloader: NSObject, ObservableObject {
     /// The recommended model shipped with Cai's built-in LLM.
     /// Must match `ModelCatalog.defaultModelId` and the first entry in `ModelCatalog.curatedModels`.
     static let defaultModel = ModelInfo(
-        id: "mlx-community/Qwen3.5-2B-MLX-4bit",
-        name: "Qwen3.5 2B",
-        sizeBytes: 1_300_000_000, // ~1.3 GB
+        id: "mlx-community/Ministral-3-3B-Instruct-2512-4bit",
+        name: "Ministral 3B",
+        sizeBytes: 1_930_000_000, // ~1.8 GB
         description: "Fast, concise output. Recommended for clipboard actions."
     )
 
@@ -158,13 +158,18 @@ class ModelDownloader: NSObject, ObservableObject {
 enum ModelCatalog {
 
     /// Default model for first-time setup.
-    static let defaultModelId = "mlx-community/Qwen3.5-2B-MLX-4bit"
+    static let defaultModelId = "mlx-community/Ministral-3-3B-Instruct-2512-4bit"
 
     /// Curated models for the settings picker.
+    /// Kept intentionally small — only well-tested models. Power users can install
+    /// any other MLX model via the "Other (HuggingFace ID)" input.
+    /// Note: Qwen3 / Qwen3.5 family is excluded — they default to "thinking mode"
+    /// which streams chain-of-thought reasoning to the user, breaking Cai's clipboard UX.
+    /// Qwen3.5 2B was tested and showed quality issues (hallucinations, missed errors).
+    /// mlx-swift-lm doesn't currently expose `enable_thinking=False`. Revisit in v1.4.
     static let curatedModels: [(id: String, name: String, size: String)] = [
-        ("mlx-community/Qwen3.5-2B-MLX-4bit", "Qwen3.5 2B", "~1.3 GB"),
-        ("mlx-community/Qwen3.5-4B-MLX-4bit", "Qwen3.5 4B", "~2.5 GB"),
-        ("mlx-community/Qwen3.5-9B-MLX-4bit", "Qwen3.5 9B (16 GB+ RAM)", "~5.5 GB"),
+        ("mlx-community/Ministral-3-3B-Instruct-2512-4bit", "Ministral 3B", "~1.8 GB"),
+        ("mlx-community/Qwen2.5-7B-Instruct-4bit", "Qwen 2.5 7B (16 GB+ RAM)", "~4.3 GB"),
     ]
 }
 
