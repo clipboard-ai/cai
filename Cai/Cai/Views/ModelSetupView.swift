@@ -356,6 +356,9 @@ struct ModelSetupView: View {
 
                 // Configure settings and clean up legacy GGUF files
                 await MainActor.run {
+                    // Persist the downloaded model ID so Settings → AI picker reflects
+                    // the actual loaded model (otherwise it shows "Select a model...")
+                    settings.builtInModelId = ModelDownloader.defaultModel.id
                     settings.builtInSetupDone = true
                     settings.modelProvider = .builtIn
 

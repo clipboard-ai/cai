@@ -114,6 +114,9 @@ class ModelDownloader: NSObject, ObservableObject {
     }
 
     /// Removes old GGUF files to reclaim disk space after successful MLX migration.
+    /// Also kills any orphaned llama-server zombies left behind by pre-MLX Cai
+    /// versions — those processes can survive Cai crashes / force-quits and hold
+    /// ~2 GB of RAM via deleted file descriptors for days.
     static func removeLegacyGGUFModels() {
         guard FileManager.default.fileExists(atPath: modelsDirectory.path) else { return }
         let contents = (try? FileManager.default.contentsOfDirectory(atPath: modelsDirectory.path)) ?? []
@@ -121,6 +124,28 @@ class ModelDownloader: NSObject, ObservableObject {
             let path = modelsDirectory.appendingPathComponent(file)
             try? FileManager.default.removeItem(at: path)
             print("🗑️ Removed legacy GGUF model: \(file)")
+        }
+        killOrphanedLlamaServer()
+    }
+
+    /// Kills any leftover llama-server processes from pre-MLX Cai versions.
+    /// Scoped narrowly to Cai's bundled binary path so it never touches user-installed
+    /// LLM tools (Ollama uses a different binary name and `pkill -f` matches the full
+    /// command line, so this only matches `Cai.app/Contents/Resources/bin/llama-server`).
+    /// Only called from `removeLegacyGGUFModels()` during one-shot GGUF→MLX migration.
+    private static func killOrphanedLlamaServer() {
+        let task = Process()
+        task.launchPath = "/usr/bin/pkill"
+        task.arguments = ["-9", "-f", "Cai.app/Contents/Resources/bin/llama-server"]
+        do {
+            try task.run()
+            task.waitUntilExit()
+            // Exit code 0 = killed something, 1 = no matches (most users). Both fine.
+            if task.terminationStatus == 0 {
+                print("🗑️ Killed orphaned llama-server zombie from pre-MLX Cai")
+            }
+        } catch {
+            print("⚠️ Failed to run pkill for orphaned llama-server: \(error.localizedDescription)")
         }
     }
 

@@ -29,6 +29,13 @@ actor MLXInference {
     /// We reject overlapping calls with a clear error rather than corrupting state.
     private var isGenerating: Bool = false
 
+    /// Tracks the in-flight load so concurrent `loadModel(id:)` calls for the same
+    /// ID don't restart the download. Actors are re-entrant on `await`, so without
+    /// this guard a second call could start a parallel download while the first is
+    /// still fetching from HuggingFace — wasting bandwidth and corrupting state.
+    private var loadingModelId: String?
+    private var loadingTask: Task<Void, Error>?
+
     /// Whether a model is currently loaded and ready for inference.
     var isLoaded: Bool { modelContainer != nil }
 
@@ -56,20 +63,58 @@ actor MLXInference {
     }
 
     /// Downloads and loads a model from HuggingFace by ID (e.g., "mlx-community/Ministral-3-3B-Instruct-2512-4bit").
+    ///
+    /// Idempotent: if a load for the same `id` is already in flight, this call awaits
+    /// the existing Task instead of starting a parallel download. This is critical
+    /// because actors release isolation on `await`, so without this guard, two rapid
+    /// calls would each see `modelContainer == nil` and start independent downloads.
     func loadModel(
         id: String,
         progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }
     ) async throws {
+        // If already loading the same model, await the in-flight Task and return.
+        if loadingModelId == id, let existing = loadingTask {
+            try await existing.value
+            return
+        }
+
+        // If a model is already loaded with this ID, no-op.
+        if loadingModelId == nil, modelContainer != nil, currentLoadedId == id {
+            return
+        }
+
+        // Start a fresh load. Cancel any in-flight load for a different model first.
+        loadingTask?.cancel()
         if modelContainer != nil { unload() }
         configureMemory()
         print("🧠 MLX loading model: \(id)")
-        let container = try await loadModelContainer(
-            id: id,
-            progressHandler: progressHandler
-        )
-        self.modelContainer = container
-        print("🧠 MLX model ready: \(id)")
+
+        loadingModelId = id
+        let task = Task<Void, Error> {
+            let container = try await loadModelContainer(
+                id: id,
+                progressHandler: progressHandler
+            )
+            self.modelContainer = container
+            self.currentLoadedId = id
+            print("🧠 MLX model ready: \(id)")
+        }
+        loadingTask = task
+
+        do {
+            try await task.value
+            loadingModelId = nil
+            loadingTask = nil
+        } catch {
+            loadingModelId = nil
+            loadingTask = nil
+            throw error
+        }
     }
+
+    /// ID of the currently loaded model (nil if no model is loaded). Used by
+    /// `loadModel(id:)` to short-circuit when the same model is already loaded.
+    private var currentLoadedId: String?
 
     // MARK: - Session Inputs
 
@@ -209,6 +254,7 @@ actor MLXInference {
     /// Unloads the model and frees memory.
     func unload() {
         modelContainer = nil
+        currentLoadedId = nil
         // Clear busy flag so a stuck stream (e.g., from model switch) doesn't
         // permanently lock out new generations.
         isGenerating = false
