@@ -195,7 +195,7 @@ actor LLMService {
         switch action {
         case .summarize:
             return (
-                system: "Output only the summary.\(context) Use short lines starting with \"\u{2022} \" (Unicode bullet + space) for each point. No preamble, no introductions, no markdown syntax (no #, no -, no [ ]). For math, use Unicode symbols.",
+                system: "Output only the summary.\(context) Use short lines starting with \"\u{2022} \" (Unicode bullet + space) for each point. No preamble, no introductions, no markdown syntax (no **, no __, no #, no -, no [ ]). For math, use Unicode symbols.",
                 user: "Summarize this in 2-3 bullet points. Each bullet should be one sentence. Capture the key points only.\n\n\(text)"
             )
         case .translate(let lang):
@@ -210,7 +210,7 @@ actor LLMService {
             )
         case .explain:
             return (
-                system: "Explain clearly in plain language.\(context) Under 100 words. Start directly \u{2014} no preamble. Plain text only \u{2014} no markdown syntax (no **, no #, no -, no [ ]). For math, use Unicode symbols.",
+                system: "Explain clearly in plain language.\(context) Under 100 words. Start directly \u{2014} no preamble. Plain text only \u{2014} no markdown syntax (no **, no __, no #, no -, no [ ]). For math, use Unicode symbols.",
                 user: "Explain this:\n\n\(text)"
             )
         case .reply:
@@ -225,7 +225,7 @@ actor LLMService {
             )
         case .custom(let instruction):
             return (
-                system: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" \u{2014} the result is copied directly to clipboard. Plain text only \u{2014} no markdown syntax (no **, no #, no -, no [ ]). For math, use Unicode symbols.",
+                system: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" \u{2014} the result is copied directly to clipboard. Plain text only \u{2014} no markdown syntax (no **, no __, no #, no -, no [ ]). For math, use Unicode symbols.",
                 user: "\(instruction)\n\n\(text)"
             )
         }
@@ -317,7 +317,7 @@ actor LLMService {
         let core = """
             You are a helpful assistant continuing a conversation. Answer the user's \
             follow-up question naturally based on the prior exchange. Plain text only \
-            \u{2014} no markdown syntax (no **, no #, no -, no [ ]). For math, use Unicode symbols.
+            \u{2014} no markdown syntax (no **, no __, no #, no -, no [ ]). For math, use Unicode symbols.
             """
 
         var prompt = core

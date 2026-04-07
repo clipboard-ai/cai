@@ -1172,7 +1172,7 @@ struct ActionListWindow: View {
 
         if isNewAction || text.isEmpty {
             // New action mode — no clipboard context, general assistant
-            let systemPrompt = "You are a helpful assistant. Answer clearly and concisely. Plain text only \u{2014} no markdown syntax (no **, no #, no -, no [ ]). For math, use Unicode symbols."
+            let systemPrompt = "You are a helpful assistant. Answer clearly and concisely. Plain text only \u{2014} no markdown syntax (no **, no __, no #, no -, no [ ]). For math, use Unicode symbols."
             let initialMessages = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: instruction)
             conversationHistory = initialMessages
             activeConfig = config
