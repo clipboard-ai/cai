@@ -7,8 +7,8 @@
 <h3 align="center">The AI Action Layer for macOS</h3>
 
 <p align="center">
-  Select any text or image, press ⌥C, get instant AI actions.<br>
-  100% local. Free and open source.
+  Press ⌥C on anything. Run custom actions, locally.<br>
+  Transform text or images with AI, scripts, or shortcuts. Zero app switching.
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 
 https://github.com/user-attachments/assets/7abef32a-deed-4da3-880f-1222031800ee
 
-Cai is a native macOS menu bar app that adds an AI action layer to your Mac. Select any text or image, press **⌥C**, and instantly run AI actions — summarize, translate, OCR, draft replies, create GitHub issues, run shell commands, and more — all without leaving your workflow. It's the missing AI action layer your Mac needs.
+Cai is a native macOS menu bar app that adds an AI action layer to your Mac. Press **⌥C** on any text or image and instantly run custom actions — AI prompts, shell scripts, URL shortcuts, summaries, translations, OCR, GitHub issues, and more — all locally, all without leaving your workflow.
 
 No cloud. No telemetry. No accounts.
 
