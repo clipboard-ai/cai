@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/cai-layer/cai?label=download&color=blue" alt="Download"></a>
-  <img src="https://img.shields.io/badge/macOS-13.0%2B-blue" alt="macOS 13.0+">
+  <img src="https://img.shields.io/badge/macOS-14.0%2B-blue" alt="macOS 14.0+">
   <img src="https://img.shields.io/badge/Swift-5.9-F05138" alt="Swift 5.9">
   <img src="https://img.shields.io/badge/runs%20100%25%20locally-black" alt="Runs locally">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
@@ -67,10 +67,21 @@ No cloud. No telemetry. No accounts.
 
 ## Installation
 
+### Homebrew (recommended)
+
+```bash
+brew tap cai-layer/cai && brew install --cask cai
+```
+
+### Manual Download
+
 1. Download the `.dmg` from the [latest release](../../releases/latest)
 2. Open the DMG and drag **Cai.app** to your Applications folder
-3. Open the app and grant **Accessibility permission** when prompted
-4. On macOS 26+, Cai uses Apple Intelligence automatically. Otherwise, the built-in MLX model downloads on first launch — or skip if you already use LM Studio / Ollama
+
+### After Install
+
+1. Open the app and grant **Accessibility permission** when prompted
+2. On macOS 26+, Cai uses Apple Intelligence automatically. Otherwise, the built-in MLX model downloads on first launch — or skip if you already use LM Studio / Ollama
 
 → [Full installation guide](https://getcai.app/docs/getting-started/installation/) · [LLM setup](https://getcai.app/docs/getting-started/llm-setup/)
 
@@ -104,7 +115,7 @@ Full documentation is at [getcai.app/docs](https://getcai.app/docs/):
 
 ## Requirements
 
-- **macOS 13.0** (Ventura) or later
+- **macOS 14.0** (Sonoma) or later
 - **Apple Silicon** (M1 or later) for the built-in AI engine
 - **Accessibility permission** (for global hotkey ⌥C)
 
