@@ -64,6 +64,100 @@ final class ContextSnippetsTests: XCTestCase {
         XCTAssertEqual(snippet.bundleId, "com.apple.Terminal")
     }
 
+    // MARK: - Model: Optional fields in JSON (id, enabled)
+
+    func testContextSnippetDecodesWithoutId() throws {
+        // Regression guard: missing id should NOT throw — decoder generates a fresh UUID.
+        // This is the JSON-ergonomics fix that lets users hand-author snippets without
+        // typing UUIDs. The Swift initializer's default UUID() doesn't apply to Codable
+        // (auto-synthesized decoders ignore Swift defaults), so we need a custom init.
+        let json = """
+        {
+          "bundleId": "com.apple.Terminal",
+          "appName": "Terminal",
+          "context": "Ruby/Rails debugging",
+          "enabled": true
+        }
+        """.data(using: .utf8)!
+
+        let snippet = try JSONDecoder().decode(ContextSnippet.self, from: json)
+        XCTAssertEqual(snippet.bundleId, "com.apple.Terminal")
+        XCTAssertEqual(snippet.appName, "Terminal")
+        XCTAssertEqual(snippet.context, "Ruby/Rails debugging")
+        XCTAssertTrue(snippet.enabled)
+        // id was auto-generated, exact value doesn't matter — just confirm it exists
+        // and is a valid UUID (UUID type guarantees this)
+    }
+
+    func testContextSnippetDecodesWithoutEnabled() throws {
+        // Regression guard: missing enabled should default to true (matches Swift init default).
+        let json = """
+        {
+          "id": "00000000-0000-0000-0000-000000000099",
+          "bundleId": "com.apple.Terminal",
+          "appName": "Terminal",
+          "context": "test"
+        }
+        """.data(using: .utf8)!
+
+        let snippet = try JSONDecoder().decode(ContextSnippet.self, from: json)
+        XCTAssertTrue(snippet.enabled, "Missing 'enabled' should default to true")
+        XCTAssertEqual(snippet.id.uuidString, "00000000-0000-0000-0000-000000000099")
+    }
+
+    func testContextSnippetDecodesMinimalJSON() throws {
+        // The "minimal valid snippet" — only the three required fields (bundleId,
+        // appName, context). This is the shape recommended in user-facing docs.
+        let json = """
+        {
+          "bundleId": "com.microsoft.VSCode",
+          "appName": "Visual Studio Code",
+          "context": "Source code or code review comments. Explain in plain English."
+        }
+        """.data(using: .utf8)!
+
+        let snippet = try JSONDecoder().decode(ContextSnippet.self, from: json)
+        XCTAssertEqual(snippet.bundleId, "com.microsoft.VSCode")
+        XCTAssertEqual(snippet.appName, "Visual Studio Code")
+        XCTAssertEqual(snippet.context, "Source code or code review comments. Explain in plain English.")
+        XCTAssertTrue(snippet.enabled)  // default
+        // id is auto-generated; just confirm it exists by accessing it (UUID is non-optional)
+        _ = snippet.id
+    }
+
+    func testContextSnippetGeneratesNewIdOnEachDecodeWhenMissing() throws {
+        // Ephemeral-id semantics: two decodes of the same id-less JSON produce
+        // different UUIDs in memory. This is intentional and documented — the
+        // first v1.1 Settings UI save will persist whichever id is in memory at
+        // that moment, after which the id becomes stable across launches.
+        let json = """
+        {
+          "bundleId": "com.apple.Terminal",
+          "appName": "Terminal",
+          "context": "test"
+        }
+        """.data(using: .utf8)!
+
+        let a = try JSONDecoder().decode(ContextSnippet.self, from: json)
+        let b = try JSONDecoder().decode(ContextSnippet.self, from: json)
+        XCTAssertNotEqual(a.id, b.id,
+                          "Each decode of id-less JSON should generate a fresh UUID — confirms id is not statically derived from content")
+    }
+
+    func testContextSnippetStillRequiresBundleId() {
+        // Negative regression guard: removing the wrong field (a required one)
+        // must still throw. We didn't accidentally make everything optional.
+        let json = """
+        {
+          "appName": "Terminal",
+          "context": "test"
+        }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(ContextSnippet.self, from: json),
+                             "Missing required field 'bundleId' should throw")
+    }
+
     // MARK: - Model: ContextSnippetsFile envelope
 
     func testContextSnippetsFileVersionField() throws {

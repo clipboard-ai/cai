@@ -111,11 +111,15 @@ class ContextSnippetsManager: ObservableObject {
     /// when poking around `~/.config/cai/`. The help doc has the full schema and
     /// copy-paste examples.
     ///
-    /// We explicitly do NOT seed with an example snippet because:
-    /// - JSON doesn't support comments (a `_comment` field would be decoded as unknown)
-    /// - Any placeholder `id` field would need to be a valid UUID or Swift's `UUID`
-    ///   Codable decoder throws, silently breaking first-run
-    /// - Examples belong in docs, not in the data file
+    /// We explicitly do NOT seed with an example snippet because JSON doesn't
+    /// support comments (a `_comment` field would be decoded as unknown), and a
+    /// commented example next to the array can't survive a JSON parser. Examples
+    /// belong in the docs page (linked from Settings → Open snippets.json), where
+    /// they can be properly formatted, explained, and updated.
+    ///
+    /// Note: as of the JSON-ergonomics fix, snippets only require `bundleId`,
+    /// `appName`, and `context` — `id` and `enabled` are optional in the file.
+    /// See `ContextSnippet.init(from:)` for the custom decoder.
     private func seedEmptyFileIfMissing() {
         guard !FileManager.default.fileExists(atPath: configFileURL.path) else { return }
         try? FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
