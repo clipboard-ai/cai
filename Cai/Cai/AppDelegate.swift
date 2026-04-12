@@ -57,8 +57,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         permissionsManager.checkAccessibilityPermission()
 
         if !permissionsManager.hasAccessibilityPermission {
-            // Show the system accessibility prompt (registers Cai in the list)
+            // Show the system accessibility prompt (registers Cai in System Settings).
+            // Skip in debug builds — each Xcode build changes the binary signature,
+            // causing macOS to revoke the previous entry and spam the dialog.
+            #if !DEBUG
             permissionsManager.requestAccessibilityPermission()
+            #endif
             permissionsManager.startPollingForPermission()
 
             // If still not granted after 5 minutes, show our onboarding

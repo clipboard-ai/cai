@@ -358,4 +358,64 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertFalse(messages[0].content.contains(Self.followUpCoreMarker),
                        "buildMessages must not inject the follow-up conversational core")
     }
+
+    // MARK: - Anthropic API Types
+
+    func testAnthropicRequestEncoding() throws {
+        // Verify the request JSON matches Anthropic's /v1/messages format:
+        // - system is top-level, not in messages
+        // - messages only contain user/assistant roles
+        let request = AnthropicRequest(
+            model: "claude-sonnet-4-6",
+            max_tokens: 1024,
+            system: "You are a helpful assistant.",
+            messages: [
+                AnthropicMessage(role: "user", content: "Hello"),
+                AnthropicMessage(role: "assistant", content: "Hi!"),
+                AnthropicMessage(role: "user", content: "How are you?"),
+            ],
+            temperature: 0.3,
+            top_p: 0.9
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(json["model"] as? String, "claude-sonnet-4-6")
+        XCTAssertEqual(json["max_tokens"] as? Int, 1024)
+        XCTAssertEqual(json["system"] as? String, "You are a helpful assistant.")
+        XCTAssertEqual(json["temperature"] as? Double, 0.3)
+        XCTAssertEqual(json["top_p"] as? Double, 0.9)
+
+        let messages = json["messages"] as! [[String: String]]
+        XCTAssertEqual(messages.count, 3)
+        XCTAssertEqual(messages[0]["role"], "user")
+        XCTAssertEqual(messages[1]["role"], "assistant")
+        XCTAssertEqual(messages[2]["role"], "user")
+        // No system message in the messages array
+        XCTAssertTrue(messages.allSatisfy { $0["role"] != "system" })
+    }
+
+    func testAnthropicRequestOmitsSystemWhenNil() throws {
+        // When no system prompt is set, the JSON should not contain a "system" key
+        let request = AnthropicRequest(
+            model: "claude-haiku-4-5",
+            max_tokens: 512,
+            system: nil,
+            messages: [AnthropicMessage(role: "user", content: "Hi")],
+            temperature: nil,
+            top_p: nil
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        // Custom encode(to:) omits optional keys entirely when nil
+        XCTAssertNil(json["system"], "system key must be absent when nil — Anthropic rejects null")
+        XCTAssertNil(json["temperature"], "temperature key must be absent when nil")
+        XCTAssertNil(json["top_p"], "top_p key must be absent when nil")
+        XCTAssertEqual(json["model"] as? String, "claude-haiku-4-5")
+        XCTAssertEqual(json["max_tokens"] as? Int, 512)
+    }
+
 }

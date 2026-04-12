@@ -112,6 +112,47 @@ actor LLMService {
             return checkAppleFMStatus()
         }
 
+        // Anthropic — no /v1/models endpoint, validate with a 1-token API call
+        if provider == .anthropic {
+            let key = await MainActor.run { CaiSettings.shared.anthropicApiKey }
+            if key.isEmpty {
+                return Status(available: false, modelName: nil, error: "No API key")
+            }
+            let model = await MainActor.run { CaiSettings.shared.anthropicModelName }
+
+            guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
+                return Status(available: false, modelName: nil, error: "Invalid URL")
+            }
+            // Minimal request — 1 output token on Haiku (~$0.000003 per check).
+            // Uses JSONSerialization to avoid encoding "system": null which Anthropic rejects.
+            let body: [String: Any] = [
+                "model": "claude-haiku-4-5",
+                "max_tokens": 1,
+                "messages": [["role": "user", "content": "hi"]]
+            ]
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(key, forHTTPHeaderField: "x-api-key")
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            request.timeoutInterval = 10
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if status == 200 {
+                    return Status(available: true, modelName: model, error: nil)
+                } else if status == 401 {
+                    return Status(available: false, modelName: nil, error: "Invalid API key")
+                } else {
+                    return Status(available: false, modelName: nil, error: "Anthropic error (\(status))")
+                }
+            } catch {
+                return Status(available: false, modelName: nil, error: "Could not reach Anthropic API")
+            }
+        }
+
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
         guard !baseURL.isEmpty,
               baseURL.hasPrefix("http"),
@@ -155,6 +196,10 @@ actor LLMService {
         }
         if provider == .apple {
             return ["Apple Intelligence"]
+        }
+        if provider == .anthropic {
+            let model = await MainActor.run { CaiSettings.shared.anthropicModelName }
+            return [model]
         }
 
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
@@ -377,6 +422,11 @@ actor LLMService {
             return try await generateWithAppleFM(messages)
         }
 
+        // Anthropic — route to Claude API (/v1/messages)
+        if provider == .anthropic {
+            return try await generateWithAnthropic(messages, config: config)
+        }
+
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
         guard !baseURL.isEmpty,
               baseURL.hasPrefix("http"),
@@ -548,6 +598,88 @@ actor LLMService {
             continuation.yield(fullResponse)
             continuation.finish()
         }
+    }
+
+    // MARK: - Anthropic (Claude API)
+
+    /// Sends messages to the Anthropic /v1/messages endpoint.
+    /// Extracts the system message (already contains action prompt + Context Snippet + About You)
+    /// and passes it as the top-level `system` param. Remaining user/assistant messages become
+    /// the `messages` array. Follow-up conversations work automatically — the caller builds
+    /// the full message history before calling generateWithMessages().
+    private func generateWithAnthropic(
+        _ messages: [ChatMessage],
+        config: GenerationConfig
+    ) async throws -> String {
+        let key = await MainActor.run { CaiSettings.shared.anthropicApiKey }
+        guard !key.isEmpty else {
+            throw LLMError.serverError(401, "No API key configured. Add your Anthropic key in Settings.")
+        }
+
+        let model = await MainActor.run { CaiSettings.shared.anthropicModelName }
+
+        // Extract system message (first message with role "system") → top-level param
+        let systemMessage = messages.first(where: { $0.role == "system" })?.content
+
+        // Filter to user/assistant messages only — Anthropic rejects system in messages array
+        let conversationMessages = messages
+            .filter { $0.role != "system" }
+            .map { AnthropicMessage(role: $0.role, content: $0.content) }
+
+        let body = AnthropicRequest(
+            model: model,
+            max_tokens: config.maxTokens,
+            system: systemMessage,
+            messages: conversationMessages,
+            temperature: Double(config.temperature),
+            top_p: Double(config.topP)
+        )
+
+        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
+            throw LLMError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(key, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.timeoutInterval = 60  // Claude can be slower than local models
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let urlError as URLError {
+            CrashReportingService.shared.addBreadcrumb(category: "llm", message: "Anthropic request failed: \(urlError.localizedDescription)", level: .error)
+            switch urlError.code {
+            case .timedOut:
+                throw LLMError.timeout
+            default:
+                throw LLMError.connectionFailed
+            }
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw LLMError.invalidResponse
+        }
+
+        guard http.statusCode == 200 else {
+            // Try to extract Anthropic's structured error message
+            if let errorResponse = try? JSONDecoder().decode(AnthropicErrorResponse.self, from: data) {
+                throw LLMError.serverError(http.statusCode, errorResponse.error.message)
+            }
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw LLMError.serverError(http.statusCode, body)
+        }
+
+        let anthropicResponse = try JSONDecoder().decode(AnthropicResponse.self, from: data)
+        guard let text = anthropicResponse.content.first(where: { $0.type == "text" })?.text else {
+            throw LLMError.emptyResponse
+        }
+
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Apple Intelligence (FoundationModels)
@@ -776,6 +908,56 @@ private struct ChatResponse: Decodable {
         struct Message: Decodable {
             let content: String
         }
+    }
+}
+
+// MARK: - Anthropic API Types
+
+/// Internal (not private) so tests can verify request encoding and response decoding.
+/// Custom encode(to:) omits `system` key when nil — Anthropic rejects `"system": null`.
+struct AnthropicRequest: Encodable {
+    let model: String
+    let max_tokens: Int
+    let system: String?
+    let messages: [AnthropicMessage]
+    let temperature: Double?
+    let top_p: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case model, max_tokens, system, messages, temperature, top_p
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(max_tokens, forKey: .max_tokens)
+        if let system { try container.encode(system, forKey: .system) }
+        try container.encode(messages, forKey: .messages)
+        if let temperature { try container.encode(temperature, forKey: .temperature) }
+        if let top_p { try container.encode(top_p, forKey: .top_p) }
+    }
+}
+
+struct AnthropicMessage: Codable, Equatable {
+    let role: String      // "user" or "assistant" only — system is top-level
+    let content: String
+}
+
+struct AnthropicResponse: Decodable {
+    let content: [ContentBlock]
+
+    struct ContentBlock: Decodable {
+        let type: String
+        let text: String?
+    }
+}
+
+private struct AnthropicErrorResponse: Decodable {
+    let error: AnthropicErrorDetail
+
+    struct AnthropicErrorDetail: Decodable {
+        let type: String
+        let message: String
     }
 }
 

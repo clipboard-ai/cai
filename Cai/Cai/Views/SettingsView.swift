@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var llmConnected: Bool? = nil  // nil = checking
     /// Available models from the current provider
     @State private var availableModels: [String] = []
+    /// Debounce task for LLM status checks (prevents API call storms during typing)
+    @State private var statusCheckTask: Task<Void, Never>?
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -68,6 +70,24 @@ struct SettingsView: View {
                                     Text("On-device model via Apple Intelligence — no setup needed")
                                         .font(.system(size: 11))
                                         .foregroundColor(.caiTextSecondary)
+                                } else if settings.modelProvider == .anthropic {
+                                    TextField("claude-sonnet-4-6", text: $settings.anthropicModelName)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .accessibilityLabel("Claude model name")
+
+                                    Text("Model ID \u{2014} e.g. claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
+
+                                    SecureField("sk-ant-...", text: $settings.anthropicApiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .accessibilityLabel("Anthropic API key")
+
+                                    Text("API key from [console.anthropic.com](https://console.anthropic.com/)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.caiTextSecondary.opacity(0.6))
                                 } else {
                                     if settings.modelProvider == .custom {
                                         TextField("http://127.0.0.1:8080", text: $settings.customModelURL)
@@ -121,10 +141,13 @@ struct SettingsView: View {
                                     startBuiltInIfNeeded()
                                 }
                                 forceCheckLLMStatus()
-                                if newProvider != .builtIn && newProvider != .apple {
+                                if newProvider != .builtIn && newProvider != .apple && newProvider != .anthropic {
                                     fetchAvailableModels()
                                 }
                             }
+                            .onChange(of: settings.anthropicModelName) { forceCheckLLMStatus() }
+                            .onChange(of: settings.anthropicApiKey) { forceCheckLLMStatus() }
+                            .onChange(of: settings.apiKey) { forceCheckLLMStatus() }
                             .onChange(of: settings.customModelURL) { forceCheckLLMStatus(); fetchAvailableModels() }
                             .onChange(of: settings.modelName) { forceCheckLLMStatus() }
                         }
@@ -745,8 +768,12 @@ struct SettingsView: View {
 
     private func forceCheckLLMStatus() {
         llmConnected = nil
-        Task {
+        statusCheckTask?.cancel()
+        statusCheckTask = Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
             let status = await LLMService.shared.checkStatus()
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 llmConnected = status.available
             }

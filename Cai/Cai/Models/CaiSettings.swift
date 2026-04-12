@@ -33,6 +33,7 @@ class CaiSettings: ObservableObject {
         static let clipboardHistorySize = "cai_clipboardHistorySize"
         static let installedExtensions = "cai_installedExtensions"
         static let appearance = "cai_appearance"
+        static let anthropicModelName = "cai_anthropicModelName"
         // apiKey moved to Keychain — see KeychainHelper
     }
 
@@ -43,6 +44,7 @@ class CaiSettings: ObservableObject {
         case apple = "Apple Intelligence"
         case lmstudio = "LM Studio"
         case ollama = "Ollama"
+        case anthropic = "Anthropic"
         case custom = "Custom"
 
         var id: String { rawValue }
@@ -54,6 +56,7 @@ class CaiSettings: ObservableObject {
             case .apple: return ""  // No HTTP endpoint — uses FoundationModels framework
             case .lmstudio: return "http://127.0.0.1:1234"
             case .ollama: return "http://127.0.0.1:11434"
+            case .anthropic: return "https://api.anthropic.com"
             case .custom: return ""
             }
         }
@@ -169,10 +172,21 @@ class CaiSettings: ObservableObject {
             return ""  // Uses FoundationModels framework, not HTTP
         case .lmstudio, .ollama:
             return modelProvider.defaultURL
+        case .anthropic:
+            return "https://api.anthropic.com"
         case .custom:
             return customModelURL
         }
     }
+
+    /// Anthropic model name (e.g. "claude-sonnet-4-6").
+    /// Hardcoded picker in Settings — Anthropic has no /v1/models endpoint.
+    @Published var anthropicModelName: String {
+        didSet { defaults.set(anthropicModelName, forKey: Keys.anthropicModelName) }
+    }
+
+    /// Default Anthropic model ID. Users can override in Settings.
+    static let defaultAnthropicModel = "claude-sonnet-4-6"
 
     /// HuggingFace model ID for the built-in MLX model (e.g., "mlx-community/Ministral-3-3B-Instruct-2512-4bit")
     @Published var builtInModelId: String {
@@ -201,14 +215,27 @@ class CaiSettings: ObservableObject {
         didSet { defaults.set(crashReportingPromptShown, forKey: Keys.crashReportingPromptShown) }
     }
 
-    /// Optional API key for authenticated LLM providers (cloud APIs, LM Studio with auth).
+    /// Optional API key for OpenAI-compatible LLM providers (LM Studio, Ollama, Custom).
     /// Empty string = no auth header sent. Stored in Keychain (encrypted at rest), never logged.
+    /// Anthropic uses a separate key — see `anthropicApiKey`.
     @Published var apiKey: String {
         didSet {
             if apiKey.isEmpty {
                 KeychainHelper.delete(forKey: "cai_apiKey")
             } else {
                 KeychainHelper.set(apiKey, forKey: "cai_apiKey")
+            }
+        }
+    }
+
+    /// Dedicated API key for Anthropic (Claude API). Separate from `apiKey` to prevent
+    /// cross-provider key leakage — Anthropic uses `x-api-key` header, not Bearer.
+    @Published var anthropicApiKey: String {
+        didSet {
+            if anthropicApiKey.isEmpty {
+                KeychainHelper.delete(forKey: "cai_anthropicApiKey")
+            } else {
+                KeychainHelper.set(anthropicApiKey, forKey: "cai_anthropicApiKey")
             }
         }
     }
@@ -324,6 +351,9 @@ class CaiSettings: ObservableObject {
         let appearanceRaw = defaults.string(forKey: Keys.appearance) ?? Appearance.system.rawValue
         self.appearance = Appearance(rawValue: appearanceRaw) ?? .system
 
+        self.anthropicModelName = defaults.string(forKey: Keys.anthropicModelName)
+            ?? Self.defaultAnthropicModel
+
         // API key: read from Keychain, migrate from UserDefaults if needed
         if let keychainKey = KeychainHelper.get(forKey: "cai_apiKey") {
             self.apiKey = keychainKey
@@ -334,6 +364,13 @@ class CaiSettings: ObservableObject {
             self.apiKey = legacyKey
         } else {
             self.apiKey = ""
+        }
+
+        // Anthropic API key: separate Keychain entry
+        if let anthropicKey = KeychainHelper.get(forKey: "cai_anthropicApiKey") {
+            self.anthropicApiKey = anthropicKey
+        } else {
+            self.anthropicApiKey = ""
         }
 
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
@@ -389,6 +426,14 @@ class CaiSettings: ObservableObject {
             // User already migrated via Settings download path — clean up stale GGUF key
             defaults.removeObject(forKey: "cai_builtInModelPath")
             print("🧹 Cleaned up stale GGUF path key (user already on MLX)")
+        }
+
+        // One-time migration: move Anthropic key from shared apiKey to dedicated entry
+        if modelProvider == .anthropic,
+           anthropicApiKey.isEmpty,
+           apiKey.hasPrefix("sk-ant-") {
+            anthropicApiKey = apiKey
+            apiKey = ""
         }
     }
 
