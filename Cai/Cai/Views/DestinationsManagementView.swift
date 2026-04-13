@@ -6,6 +6,7 @@ import SwiftUI
 struct DestinationsManagementView: View {
     @ObservedObject var settings = CaiSettings.shared
     let onBack: () -> Void
+    var onBrowseExtensions: (() -> Void)?
 
     @State private var editingDestinationId: UUID?
     @State private var isAddingNew: Bool = false
@@ -102,11 +103,26 @@ struct DestinationsManagementView: View {
                     }
 
                     if settings.outputDestinations.filter({ !$0.isBuiltIn }).isEmpty && !isAddingNew {
-                        Text("No custom destinations yet")
-                            .font(.system(size: 11))
-                            .foregroundColor(.caiTextSecondary.opacity(0.5))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
+                        VStack(spacing: 8) {
+                            Text("No custom destinations yet")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiTextSecondary.opacity(0.5))
+
+                            if onBrowseExtensions != nil {
+                                Button(action: { onBrowseExtensions?() }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "square.grid.2x2")
+                                            .font(.system(size: 10, weight: .medium))
+                                        Text("Browse Community Extensions")
+                                            .font(.system(size: 11, weight: .medium))
+                                    }
+                                    .foregroundColor(.caiPrimary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
                     }
                 }
                 .padding(.vertical, 8)
