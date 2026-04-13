@@ -6,6 +6,7 @@ import SwiftUI
 struct ShortcutsManagementView: View {
     @ObservedObject var settings = CaiSettings.shared
     let onBack: () -> Void
+    var onBrowseExtensions: (() -> Void)?
 
     @State private var editingShortcutId: UUID?
     @State private var isAddingNew: Bool = false
@@ -124,6 +125,19 @@ struct ShortcutsManagementView: View {
                 .font(.system(size: 11))
                 .foregroundColor(.caiTextSecondary.opacity(0.6))
                 .multilineTextAlignment(.center)
+
+            if onBrowseExtensions != nil {
+                Button(action: { onBrowseExtensions?() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 10, weight: .medium))
+                        Text("Browse Community Extensions")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(.caiPrimary)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 80)
         .padding()
