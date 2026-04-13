@@ -112,45 +112,16 @@ actor LLMService {
             return checkAppleFMStatus()
         }
 
-        // Anthropic — no /v1/models endpoint, validate with a 1-token API call
+        // Anthropic — check API key is configured. No validation call — Anthropic's
+        // API has quirks with lightweight probe requests (intermittent temperature/top_p
+        // rejection on alias model IDs). Real errors surface on first action instead.
         if provider == .anthropic {
             let key = await MainActor.run { CaiSettings.shared.anthropicApiKey }
             if key.isEmpty {
                 return Status(available: false, modelName: nil, error: "No API key")
             }
             let model = await MainActor.run { CaiSettings.shared.anthropicModelName }
-
-            guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
-                return Status(available: false, modelName: nil, error: "Invalid URL")
-            }
-            // Minimal request — 1 output token on Haiku (~$0.000003 per check).
-            // Uses JSONSerialization to avoid encoding "system": null which Anthropic rejects.
-            let body: [String: Any] = [
-                "model": "claude-haiku-4-5",
-                "max_tokens": 1,
-                "messages": [["role": "user", "content": "hi"]]
-            ]
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(key, forHTTPHeaderField: "x-api-key")
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.timeoutInterval = 10
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if status == 200 {
-                    return Status(available: true, modelName: model, error: nil)
-                } else if status == 401 {
-                    return Status(available: false, modelName: nil, error: "Invalid API key")
-                } else {
-                    return Status(available: false, modelName: nil, error: "Anthropic error (\(status))")
-                }
-            } catch {
-                return Status(available: false, modelName: nil, error: "Could not reach Anthropic API")
-            }
+            return Status(available: true, modelName: model, error: nil)
         }
 
         let baseURL = await MainActor.run { CaiSettings.shared.modelURL }
@@ -271,7 +242,7 @@ actor LLMService {
         case .custom(let instruction):
             return (
                 system: "Output ONLY the processed text.\(context) No comments, no introductions, no \"Here is...\" \u{2014} the result is copied directly to clipboard. Plain text only \u{2014} no markdown syntax (no **, no __, no #, no -, no [ ]). For math, use Unicode symbols.",
-                user: "\(instruction)\n\n\(text)"
+                user: "\(instruction)\n\nInput:\n\(text)"
             )
         }
     }
@@ -360,8 +331,9 @@ actor LLMService {
         snippet: ContextSnippet?
     ) -> String {
         let core = """
-            You are a helpful assistant continuing a conversation. Answer the user's \
-            follow-up question naturally based on the prior exchange. Plain text only \
+            You are a helpful assistant continuing a conversation. Answer ONLY the user's \
+            latest follow-up question \u{2014} do not repeat or summarize previous answers. \
+            Keep your response focused on what was just asked. Plain text only \
             \u{2014} no markdown syntax (no **, no __, no #, no -, no [ ]). For math, use Unicode symbols.
             """
 
@@ -630,9 +602,7 @@ actor LLMService {
             model: model,
             max_tokens: config.maxTokens,
             system: systemMessage,
-            messages: conversationMessages,
-            temperature: Double(config.temperature),
-            top_p: Double(config.topP)
+            messages: conversationMessages
         )
 
         guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
@@ -920,11 +890,9 @@ struct AnthropicRequest: Encodable {
     let max_tokens: Int
     let system: String?
     let messages: [AnthropicMessage]
-    let temperature: Double?
-    let top_p: Double?
 
     private enum CodingKeys: String, CodingKey {
-        case model, max_tokens, system, messages, temperature, top_p
+        case model, max_tokens, system, messages
     }
 
     func encode(to encoder: Encoder) throws {
@@ -933,8 +901,6 @@ struct AnthropicRequest: Encodable {
         try container.encode(max_tokens, forKey: .max_tokens)
         if let system { try container.encode(system, forKey: .system) }
         try container.encode(messages, forKey: .messages)
-        if let temperature { try container.encode(temperature, forKey: .temperature) }
-        if let top_p { try container.encode(top_p, forKey: .top_p) }
     }
 }
 

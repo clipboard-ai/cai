@@ -373,9 +373,7 @@ final class LLMServiceTests: XCTestCase {
                 AnthropicMessage(role: "user", content: "Hello"),
                 AnthropicMessage(role: "assistant", content: "Hi!"),
                 AnthropicMessage(role: "user", content: "How are you?"),
-            ],
-            temperature: 0.3,
-            top_p: 0.9
+            ]
         )
 
         let data = try JSONEncoder().encode(request)
@@ -384,8 +382,9 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertEqual(json["model"] as? String, "claude-sonnet-4-6")
         XCTAssertEqual(json["max_tokens"] as? Int, 1024)
         XCTAssertEqual(json["system"] as? String, "You are a helpful assistant.")
-        XCTAssertEqual(json["temperature"] as? Double, 0.3)
-        XCTAssertEqual(json["top_p"] as? Double, 0.9)
+        // No temperature or top_p — Anthropic uses sensible defaults and rejects the combination
+        XCTAssertNil(json["temperature"], "temperature must not be sent to avoid top_p conflict")
+        XCTAssertNil(json["top_p"], "top_p must not be sent")
 
         let messages = json["messages"] as! [[String: String]]
         XCTAssertEqual(messages.count, 3)
@@ -402,18 +401,14 @@ final class LLMServiceTests: XCTestCase {
             model: "claude-haiku-4-5",
             max_tokens: 512,
             system: nil,
-            messages: [AnthropicMessage(role: "user", content: "Hi")],
-            temperature: nil,
-            top_p: nil
+            messages: [AnthropicMessage(role: "user", content: "Hi")]
         )
 
         let data = try JSONEncoder().encode(request)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
-        // Custom encode(to:) omits optional keys entirely when nil
+        // Custom encode(to:) omits system key entirely when nil
         XCTAssertNil(json["system"], "system key must be absent when nil — Anthropic rejects null")
-        XCTAssertNil(json["temperature"], "temperature key must be absent when nil")
-        XCTAssertNil(json["top_p"], "top_p key must be absent when nil")
         XCTAssertEqual(json["model"] as? String, "claude-haiku-4-5")
         XCTAssertEqual(json["max_tokens"] as? Int, 512)
     }
