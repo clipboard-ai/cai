@@ -15,6 +15,7 @@ Run custom actions, locally. </h3>
   <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/cai-layer/cai?label=download&color=blue" alt="Download"></a>
   <img src="https://img.shields.io/badge/macOS-14.0%2B-blue" alt="macOS 14.0+">
   <img src="https://img.shields.io/badge/Swift-5.9-F05138" alt="Swift 5.9">
+  <a href="https://huggingface.co/mlx-community"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-MLX%20Community-yellow" alt="Hugging Face"></a>
   <img src="https://img.shields.io/badge/runs%20100%25%20locally-black" alt="Runs locally">
 
 </p>
