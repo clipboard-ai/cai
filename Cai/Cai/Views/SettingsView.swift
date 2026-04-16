@@ -56,7 +56,7 @@ struct SettingsView: View {
                         settingsSection(title: "Model Provider") {
                             VStack(alignment: .leading, spacing: 8) {
                                 Picker("", selection: $settings.modelProvider) {
-                                    ForEach(CaiSettings.ModelProvider.allCases) { provider in
+                                    ForEach(CaiSettings.ModelProvider.visibleCases) { provider in
                                         Text(provider.rawValue).tag(provider)
                                     }
                                 }
@@ -95,7 +95,7 @@ struct SettingsView: View {
                                             .font(.system(size: 12, design: .monospaced))
                                             .accessibilityLabel("Custom model URL")
 
-                                        Text("OpenAI-compatible API endpoint (\(settings.modelURL))")
+                                        Text("OpenAI-compatible endpoint")
                                             .font(.system(size: 11))
                                             .foregroundColor(.caiTextSecondary)
                                     }
@@ -153,6 +153,38 @@ struct SettingsView: View {
                         }
                     }
 
+                    // MARK: Extensions Group
+                    settingsGroup(title: "Extensions") {
+                        navRow(label: "Custom Actions", count: settings.shortcuts.count, action: onShowShortcuts)
+
+                        settingsDivider
+
+                        connectorsNavRow
+
+                        settingsDivider
+
+                        navRow(label: "Destinations", count: settings.enabledDestinations.count, total: settings.outputDestinations.count, action: onShowDestinations)
+                    }
+
+                    Button(action: onShowExtensions ?? {}) {
+                        HStack(spacing: 4) {
+                            Text("Community extensions")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiPrimary)
+                            if settings.installedExtensions.count > 0 {
+                                Text("· \(settings.installedExtensions.count) installed")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.caiTextSecondary)
+                            }
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundColor(.caiPrimary.opacity(0.6))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 4)
+                    .padding(.top, -8)
+
                     // MARK: Personalization Group
                     // Layered personalization — global "About You" context + per-app Context Snippets.
                     // Both layers feed into `LLMService.buildMessages` and get injected into every
@@ -197,7 +229,7 @@ struct SettingsView: View {
                         // Context Snippets — per-app context (JSON-only in v1, UI coming in v1.1)
                         settingsSection(title: "Context Snippets", badge: "ALPHA") {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Give Cai custom per-app context. Example: 'Terminal → Rails debug logs', 'GitHub → BUG:/FEAT: prefixes', 'Slack → keep professional tone'.")
+                                Text("Give Cai custom per-app context.\nExamples: 'Terminal: Rails debug logs' | 'GitHub: BUG:/FEAT: prefixes' | 'Slack: keep professional tone'.")
                                     .font(.system(size: 11))
                                     .foregroundColor(.caiTextSecondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -237,8 +269,8 @@ struct SettingsView: View {
                         }
                     }
 
-                    // MARK: Actions Group
-                    settingsGroup(title: "Actions") {
+                    // MARK: Defaults Group
+                    settingsGroup(title: "Defaults") {
                         HStack {
                             Text("Translation")
                                 .font(.system(size: 12))
@@ -288,38 +320,6 @@ struct SettingsView: View {
                             .accessibilityLabel("Maps provider")
                         }
                     }
-
-                    // MARK: Extensions Group
-                    settingsGroup(title: "Extensions") {
-                        navRow(label: "Custom Actions", count: settings.shortcuts.count, action: onShowShortcuts)
-
-                        settingsDivider
-
-                        connectorsNavRow
-
-                        settingsDivider
-
-                        navRow(label: "Destinations", count: settings.enabledDestinations.count, total: settings.outputDestinations.count, action: onShowDestinations)
-                    }
-
-                    Button(action: onShowExtensions ?? {}) {
-                        HStack(spacing: 4) {
-                            Text("Community extensions")
-                                .font(.system(size: 11))
-                                .foregroundColor(.caiPrimary)
-                            if settings.installedExtensions.count > 0 {
-                                Text("· \(settings.installedExtensions.count) installed")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.caiTextSecondary)
-                            }
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 8, weight: .medium))
-                                .foregroundColor(.caiPrimary.opacity(0.6))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 4)
-                    .padding(.top, -8)
 
                     // MARK: General Group
                     settingsGroup(title: "General") {

@@ -49,6 +49,28 @@ class CaiSettings: ObservableObject {
 
         var id: String { rawValue }
 
+        // MARK: - Feature Flags
+
+        /// Launch flag — hide Anthropic from the provider picker.
+        /// Kept off so the launch story stays focused on local/on-device models; power users
+        /// who want Anthropic/OpenRouter/etc. can route through the Custom provider.
+        /// Flip to `true` to re-enable post-launch (rebuild required).
+        /// All Anthropic code paths (LLMService.generateWithAnthropic, Keychain entry,
+        /// anthropicModelName, anthropicApiKey, tests) remain intact — only the UI is hidden.
+        static let showAnthropic = false
+
+        /// Provider cases visible in the Settings picker. Respects feature flags.
+        /// Note: persisted `selectedProvider` of a hidden case is intentionally not migrated —
+        /// an existing selection stays honored until the user changes it.
+        static var visibleCases: [ModelProvider] {
+            allCases.filter { provider in
+                switch provider {
+                case .anthropic: return showAnthropic
+                default: return true
+                }
+            }
+        }
+
         /// Base URL (without /v1) for each provider
         var defaultURL: String {
             switch self {
@@ -331,8 +353,11 @@ class CaiSettings: ObservableObject {
         let providerRaw = defaults.string(forKey: Keys.modelProvider) ?? ModelProvider.lmstudio.rawValue
         self.modelProvider = ModelProvider(rawValue: providerRaw) ?? .lmstudio
 
-        self.customModelURL = defaults.string(forKey: Keys.customModelURL)
-            ?? "http://127.0.0.1:8080"
+        // Default to empty string so that selecting Custom without a configured URL
+        // short-circuits the status check (see LLMService.checkStatus guard on
+        // `baseURL.isEmpty`) and avoids noisy CFNetwork "Connection refused" logs.
+        // The TextField in Settings shows "http://127.0.0.1:8080" as a placeholder.
+        self.customModelURL = defaults.string(forKey: Keys.customModelURL) ?? ""
 
         self.modelName = defaults.string(forKey: Keys.modelName) ?? ""
 
