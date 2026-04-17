@@ -87,6 +87,77 @@ class ClipboardService {
         }
     }
 
+    /// Pastes `text` into the app identified by `bundleId` by simulating Cmd+V.
+    ///
+    /// Flow: re-activate the source app (Cai has stolen focus by now), briefly wait
+    /// for the activation to take effect, overwrite the general pasteboard with
+    /// `text`, post Cmd+V via CGEvent (same private-source + flag-override trick as
+    /// copy), then restore the prior pasteboard contents after a short delay so the
+    /// user's clipboard isn't left holding the AI result.
+    ///
+    /// Requirements mirror `copySelectedText`: Accessibility permission, App Sandbox
+    /// disabled. Keycode for V is 9 (kVK_ANSI_V).
+    func pasteResult(_ text: String, toBundleId bundleId: String?, completion: @escaping () -> Void) {
+        let pasteboard = NSPasteboard.general
+
+        // Snapshot the current pasteboard string so we can restore it afterwards.
+        // Only the primary string representation is preserved. Rich content (images,
+        // file URLs) is not, which is an accepted trade-off: pasteResult is only
+        // reached from an LLM text flow where the user's prior selection already
+        // lives on the pasteboard as a string.
+        let priorString = pasteboard.string(forType: .string)
+
+        // Re-activate the source app if known. Without this, Cmd+V would be
+        // delivered to Cai (frontmost after the panel became key).
+        let reactivationDelay: TimeInterval
+        if let bundleId = bundleId,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+            app.activate(options: [])
+            reactivationDelay = 0.08  // Give the WindowServer a moment to swap focus
+        } else {
+            reactivationDelay = 0
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + reactivationDelay) {
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+
+            guard let eventSource = CGEventSource(stateID: .privateState) else {
+                print("❌ Failed to create CGEventSource for paste")
+                completion()
+                return
+            }
+
+            let keyCodeV: CGKeyCode = 9  // kVK_ANSI_V
+
+            guard let keyDown = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCodeV, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCodeV, keyDown: false) else {
+                print("❌ Failed to create CGEvent for paste")
+                completion()
+                return
+            }
+
+            keyDown.flags = .maskCommand
+            keyUp.flags = .maskCommand
+
+            keyDown.post(tap: .cgAnnotatedSessionEventTap)
+            keyUp.post(tap: .cgAnnotatedSessionEventTap)
+
+            print("⌨️ Posted Cmd+V via CGEvent to \(bundleId ?? "frontmost app")")
+
+            // Restore the prior pasteboard after a delay long enough for the target
+            // app to consume our text. 400ms is conservative: fast apps finish the
+            // paste in ~50ms, slow Electron apps can take ~200ms.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                pasteboard.clearContents()
+                if let priorString = priorString {
+                    pasteboard.setString(priorString, forType: .string)
+                }
+                completion()
+            }
+        }
+    }
+
     /// Reads text content from the system clipboard
     /// - Returns: Trimmed text content, or nil if clipboard is empty or doesn't contain text
     func readClipboard() -> String? {
