@@ -80,7 +80,7 @@ class WindowController: NSObject, ObservableObject {
         }
     }
 
-    /// Default / minimum window height, always shows space for 9 rows (Spotlight-style).
+    /// Default / minimum window height. Sized to show `maxVisibleRows` rows (Spotlight-style).
     /// The window is vertically resizable: users can drag the bottom edge to grow it,
     /// useful for the Settings screens and long result bodies. Width stays pinned.
     private static var fixedWindowHeight: CGFloat {
