@@ -103,16 +103,10 @@ struct SettingsView: View {
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
 
-                                    // Model selection: the text field is always editable so users can
-                                    // paste a slug manually (offline, fetch failed, or slug not yet in the list).
-                                    // When OpenRouter's /v1/models has been fetched, a picker is shown too
-                                    // for quick browsing.
+                                    // Model selection: picker first for quick browsing of the
+                                    // fetched list; text field below for pasting a custom slug
+                                    // (offline, fetch failed, or slug not yet in the list).
                                     VStack(alignment: .leading, spacing: 8) {
-                                        TextField("openrouter/model-slug", text: $settings.openRouterModelName)
-                                            .textFieldStyle(.roundedBorder)
-                                            .font(.system(size: 12, design: .monospaced))
-                                            .accessibilityLabel("OpenRouter model slug")
-
                                         HStack(spacing: 8) {
                                             if !availableModels.isEmpty {
                                                 Picker("", selection: $settings.openRouterModelName) {
@@ -139,6 +133,11 @@ struct SettingsView: View {
                                             .buttonStyle(.plain)
                                             .help("Refresh model list")
                                         }
+
+                                        TextField("openrouter/model-slug", text: $settings.openRouterModelName)
+                                            .textFieldStyle(.roundedBorder)
+                                            .font(.system(size: 12, design: .monospaced))
+                                            .accessibilityLabel("OpenRouter model slug")
                                     }
 
                                     Text(openRouterModelListHelperText)
