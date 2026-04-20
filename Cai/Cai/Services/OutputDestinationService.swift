@@ -36,14 +36,20 @@ actor OutputDestinationService {
     // MARK: - Paste Back
 
     private func executePasteBack(text: String, sourceBundleId: String?) async throws {
-        let success = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        // Both `.pasted` and `.copiedForManualPaste` are user-successful outcomes
+        // (text was either pasted or is on the clipboard ready for ⌘V). Only
+        // `.failed` throws. Note: ActionListWindow special-cases pasteBack to
+        // call ClipboardService directly so it can surface the three outcomes
+        // as distinct toasts — this service path is kept for parity but loses
+        // the outcome distinction by necessity (throws/doesn't).
+        let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<ClipboardService.PasteOutcome, Never>) in
             Task { @MainActor in
-                ClipboardService.shared.pasteResult(text, toBundleId: sourceBundleId) { success in
-                    continuation.resume(returning: success)
+                ClipboardService.shared.pasteResult(text, toBundleId: sourceBundleId) { outcome in
+                    continuation.resume(returning: outcome)
                 }
             }
         }
-        if !success {
+        if case .failed = outcome {
             throw OutputDestinationError.pasteBackFailed
         }
     }

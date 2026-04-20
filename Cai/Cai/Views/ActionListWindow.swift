@@ -1079,25 +1079,36 @@ struct ActionListWindow: View {
             // paste the response over the source app's selection via Cmd+V.
             if action.autoReplaceSelection {
                 let bundleId = self.sourceBundleId
-                let shortcutName = action.title
+                // Truncate long names so the toast pill doesn't stretch across screen.
+                let displayName = action.title.count > 40
+                    ? action.title.prefix(38) + "…"
+                    : Substring(action.title)
                 onDismiss()
                 NotificationCenter.default.post(
                     name: .caiShowToast, object: nil,
-                    userInfo: ["message": "Generating: \(shortcutName)"]
+                    userInfo: ["message": "Generating: \(displayName)"]
                 )
                 Task {
                     do {
                         let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
                         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
                         await MainActor.run {
-                            ClipboardService.shared.pasteResult(trimmed, toBundleId: bundleId) { success in
-                                let message = success
-                                    ? "Replaced selection"
-                                    : "Could not paste. Check Accessibility permission."
-                                NotificationCenter.default.post(
-                                    name: .caiShowToast, object: nil,
-                                    userInfo: ["message": message]
-                                )
+                            ClipboardService.shared.pasteResult(trimmed, toBundleId: bundleId) { outcome in
+                                switch outcome {
+                                case .pasted:
+                                    // No toast — user sees the replacement happen.
+                                    break
+                                case .copiedForManualPaste:
+                                    NotificationCenter.default.post(
+                                        name: .caiShowToast, object: nil,
+                                        userInfo: ["message": "Response copied → ⌘V to paste"]
+                                    )
+                                case .failed:
+                                    NotificationCenter.default.post(
+                                        name: .caiShowToast, object: nil,
+                                        userInfo: ["message": "Could not paste. Check Accessibility permission."]
+                                    )
+                                }
                             }
                         }
                     } catch {
@@ -1592,15 +1603,35 @@ struct ActionListWindow: View {
     // MARK: - Output Destinations
 
     private func executeDestination(_ destination: OutputDestination, with text: String) {
-        // Copy to clipboard as a fallback "you can paste this somewhere" side-effect.
-        // Skipped for .pasteBack because pasteResult snapshots the pasteboard first,
-        // and if we clobber it here that snapshot captures the AI text instead of
-        // whatever the user had on their clipboard, defeating the whole point.
+        // Special-case paste-back: dismiss Cai, then call pasteResult directly
+        // so the three PasteOutcome cases can each surface their own toast.
+        // pasteResult handles activation of the source app when needed (Cai
+        // stays frontmost after dismiss until we yield or another app activates).
         if case .pasteBack = destination.type {
-            // handled entirely inside pasteResult
-        } else {
-            SystemActions.copyToClipboard(text)
+            let bundleId = sourceBundleId
+            onDismiss()
+            ClipboardService.shared.pasteResult(text, toBundleId: bundleId) { outcome in
+                switch outcome {
+                case .pasted:
+                    // No toast — user sees the replacement happen.
+                    break
+                case .copiedForManualPaste:
+                    NotificationCenter.default.post(
+                        name: .caiShowToast, object: nil,
+                        userInfo: ["message": "Response copied → ⌘V to paste"]
+                    )
+                case .failed:
+                    NotificationCenter.default.post(
+                        name: .caiShowToast, object: nil,
+                        userInfo: ["message": "Could not paste. Check Accessibility permission."]
+                    )
+                }
+            }
+            return
         }
+
+        // Copy to clipboard as a fallback "you can paste this somewhere" side-effect.
+        SystemActions.copyToClipboard(text)
 
         Task {
             do {

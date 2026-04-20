@@ -568,10 +568,12 @@ struct DestinationsManagementView: View {
             formTypeTag = "shell"
             formShellCommand = command
         case .pasteBack:
-            // pasteBack is built-in only and has no configurable fields, so the
-            // edit form is never reached via this case. Fall back to webhook defaults
-            // to avoid leaving form state uninitialized if an extension ever tries.
-            formTypeTag = "webhook"
+            // pasteBack is a built-in destination and has no editable fields.
+            // Built-in rows don't render an Edit button, so this case should be
+            // unreachable — assert in debug, no-op in release rather than silently
+            // coercing to a webhook form.
+            assertionFailure("pasteBack is a built-in destination and cannot be edited")
+            return
         }
     }
 

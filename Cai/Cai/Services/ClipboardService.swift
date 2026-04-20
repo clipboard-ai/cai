@@ -87,72 +87,113 @@ class ClipboardService {
         }
     }
 
-    /// Pastes `text` into the app identified by `bundleId` by simulating Cmd+V.
-    ///
-    /// Flow: snapshot the whole pasteboard (every item, every type) so images,
-    /// file URLs, and rich text survive the round trip. Re-activate the source
-    /// app (Cai has stolen focus by now), briefly wait for the activation to
-    /// take effect, overwrite the pasteboard with `text`, post Cmd+V via CGEvent
-    /// (same private-source + flag-override trick as copy), then restore the
-    /// snapshot after a short delay.
-    ///
-    /// `completion(true)` is called only if the paste was actually posted.
-    /// Any early exit (CGEventSource creation fail, CGEvent build fail) restores
-    /// the snapshot first and calls `completion(false)` so callers can show an
-    /// accurate "something broke" toast instead of a misleading success.
-    ///
-    /// Requirements mirror `copySelectedText`: Accessibility permission, App
-    /// Sandbox disabled. Keycode for V is 9 (kVK_ANSI_V).
-    func pasteResult(_ text: String, toBundleId bundleId: String?, completion: @escaping (Bool) -> Void) {
-        let pasteboard = NSPasteboard.general
-        let snapshot = PasteboardSnapshot(pasteboard)
+    /// Outcome of a paste-back attempt.
+    enum PasteOutcome {
+        /// Cmd+V was posted to the source app. Caller should toast "Replaced selection".
+        case pasted
+        /// Source app was no longer frontmost at paste time (user switched apps,
+        /// tabs, DMs, etc.). The response has been written to the clipboard and
+        /// the caller should toast "Response copied — switch back and ⌘V to paste".
+        case copiedForManualPaste
+        /// Accessibility revoked or CGEvent creation failed. Caller should show
+        /// an error toast.
+        case failed
+    }
 
-        // Re-activate the source app if known. Without this, Cmd+V would be
-        // delivered to Cai (frontmost after the panel became key).
-        let reactivationDelay: TimeInterval
-        if let bundleId = bundleId,
-           let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
-            app.activate(options: [])
-            reactivationDelay = 0.08  // Give the WindowServer a moment to swap focus
-        } else {
-            reactivationDelay = 0
+    /// Attempts to paste `text` into the app identified by `bundleId`.
+    ///
+    /// Three-way frontmost check at paste time:
+    /// - **Source app is frontmost** → paste directly.
+    /// - **Cai itself is frontmost** → Cai's activation is sticky after panel
+    ///   dismiss (macOS doesn't auto-yield). Activate the source app, wait
+    ///   briefly for focus to swap, then paste. This is the normal path for
+    ///   both the chip click and auto-replace.
+    /// - **Some other app is frontmost** → user actively switched during
+    ///   generation (different tab, app, DM). Don't yank them back; copy
+    ///   the text and return `.copiedForManualPaste` so they can ⌘V at will.
+    ///
+    /// Completion fires `.pasted` immediately after the CGEvent post (not
+    /// after the 400ms snapshot restore) so callers can update UI without
+    /// waiting.
+    ///
+    /// Requirements: Accessibility permission, App Sandbox disabled. Keycode
+    /// for V is 9 (kVK_ANSI_V).
+    func pasteResult(_ text: String, toBundleId bundleId: String?, completion: @escaping (PasteOutcome) -> Void) {
+        let pasteboard = NSPasteboard.general
+
+        // Preflight: without accessibility, CGEventSource builds fine but the
+        // posted event is silently dropped. Call AXIsProcessTrusted() directly
+        // rather than PermissionsManager.shared.hasAccessibilityPermission —
+        // the latter is a cached @Published property refreshed by a poll timer,
+        // so recently-revoked permission can still read as granted.
+        guard AXIsProcessTrusted() else {
+            print("❌ Paste aborted — accessibility permission missing")
+            completion(.failed)
+            return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + reactivationDelay) {
+        let frontmostBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let caiBundleId = Bundle.main.bundleIdentifier
+        let sourceIsFrontmost = bundleId != nil && bundleId == frontmostBundleId
+        let caiIsFrontmost = frontmostBundleId != nil && frontmostBundleId == caiBundleId
+
+        // Case 3: user actively moved to an unrelated app. Respect it — don't
+        // force-activate the source (would leak AI output into the wrong
+        // context, e.g. Slack DM with the wrong person). Copy instead.
+        if !sourceIsFrontmost && !caiIsFrontmost && bundleId != nil {
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
+            print("📋 User moved from \(bundleId ?? "nil") to \(frontmostBundleId ?? "unknown"); copied for manual paste")
+            completion(.copiedForManualPaste)
+            return
+        }
 
-            guard let eventSource = CGEventSource(stateID: .privateState) else {
-                print("❌ Failed to create CGEventSource for paste")
-                snapshot.restore(to: pasteboard)
-                completion(false)
-                return
-            }
+        // Case 2: Cai is still frontmost (panel just dismissed or we never left).
+        // Activate the source app and give the WindowServer a moment to swap
+        // focus before posting Cmd+V.
+        let activationDelay: TimeInterval
+        if caiIsFrontmost,
+           let id = bundleId,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: id).first {
+            app.activate(options: [])
+            activationDelay = 0.08
+        } else {
+            // Case 1: source is already frontmost, or no bundle id known.
+            activationDelay = 0
+        }
 
-            let keyCodeV: CGKeyCode = 9  // kVK_ANSI_V
+        DispatchQueue.main.asyncAfter(deadline: .now() + activationDelay) {
+            let snapshot = PasteboardSnapshot(pasteboard)
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            let ourChangeCount = pasteboard.changeCount
 
-            guard let keyDown = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCodeV, keyDown: true),
-                  let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCodeV, keyDown: false) else {
+            guard let eventSource = CGEventSource(stateID: .privateState),
+                  let keyDown = CGEvent(keyboardEventSource: eventSource, virtualKey: 9, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: 9, keyDown: false) else {
                 print("❌ Failed to create CGEvent for paste")
                 snapshot.restore(to: pasteboard)
-                completion(false)
+                completion(.failed)
                 return
             }
 
             keyDown.flags = .maskCommand
             keyUp.flags = .maskCommand
-
             keyDown.post(tap: .cgAnnotatedSessionEventTap)
             keyUp.post(tap: .cgAnnotatedSessionEventTap)
 
             print("⌨️ Posted Cmd+V via CGEvent to \(bundleId ?? "frontmost app")")
 
-            // Restore the snapshot after a delay long enough for the target
-            // app to consume our text. 400ms is conservative: fast apps finish
-            // the paste in ~50ms, slow Electron apps can take ~200ms.
+            // Fire completion immediately so the caller can dismiss UI. Run the
+            // snapshot restore detached — 400ms is enough for fast apps (~50ms)
+            // through slow Electron (~200ms). Skip the restore if changeCount
+            // moved (another process wrote during the window).
+            completion(.pasted)
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                snapshot.restore(to: pasteboard)
-                completion(true)
+                if pasteboard.changeCount == ourChangeCount {
+                    snapshot.restore(to: pasteboard)
+                }
             }
         }
     }
