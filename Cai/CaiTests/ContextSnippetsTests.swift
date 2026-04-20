@@ -284,22 +284,13 @@ final class ContextSnippetsTests: XCTestCase {
         let fileURL = dir.appendingPathComponent("snippets.json")
         try "{ this is not valid JSON".write(to: fileURL, atomically: true, encoding: .utf8)
 
-        // Subscribe to toast notifications to verify one fires
-        let toastExpectation = expectation(description: "Toast posted for malformed JSON")
-        let observer = NotificationCenter.default.addObserver(
-            forName: .caiShowToast, object: nil, queue: nil
-        ) { notification in
-            if let message = notification.userInfo?["message"] as? String,
-               message.lowercased().contains("json") {
-                toastExpectation.fulfill()
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
-
         let manager = ContextSnippetsManager(configDirectory: dir)
         XCTAssertTrue(manager.snippets.isEmpty)
 
-        wait(for: [toastExpectation], timeout: 1.0)
+        // The manager stores a pending error (consumed by the UI at display time).
+        let error = manager.consumePendingLoadError()
+        XCTAssertNotNil(error)
+        XCTAssertTrue(error!.lowercased().contains("json"))
     }
 
     func testManagerLoadFutureVersionRejected() throws {
@@ -315,21 +306,13 @@ final class ContextSnippetsTests: XCTestCase {
         """
         try futureJSON.write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let toastExpectation = expectation(description: "Toast posted for future version")
-        let observer = NotificationCenter.default.addObserver(
-            forName: .caiShowToast, object: nil, queue: nil
-        ) { notification in
-            if let message = notification.userInfo?["message"] as? String,
-               message.lowercased().contains("newer version") {
-                toastExpectation.fulfill()
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
-
         let manager = ContextSnippetsManager(configDirectory: dir)
         XCTAssertTrue(manager.snippets.isEmpty)
 
-        wait(for: [toastExpectation], timeout: 1.0)
+        // The manager stores a pending error (consumed by the UI at display time).
+        let error = manager.consumePendingLoadError()
+        XCTAssertNotNil(error)
+        XCTAssertTrue(error!.lowercased().contains("version"))
     }
 
     func testManagerDoesNotOverwriteExistingFile() throws {
