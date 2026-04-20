@@ -10,7 +10,10 @@ actor OutputDestinationService {
     // MARK: - Execute
 
     /// Sends text to the given destination, resolving all template placeholders.
-    func execute(_ destination: OutputDestination, with text: String) async throws {
+    ///
+    /// `sourceBundleId` is required for `.pasteBack`: it identifies the app to
+    /// re-activate before pasting. Other destination types ignore it.
+    func execute(_ destination: OutputDestination, with text: String, sourceBundleId: String? = nil) async throws {
         // Verify all setup fields are configured
         for field in destination.setupFields where field.value.isEmpty {
             throw OutputDestinationError.notConfigured(field.key)
@@ -25,6 +28,29 @@ actor OutputDestinationService {
             try await executeDeeplink(template, text: text, fields: destination.setupFields)
         case .shell(let command):
             try await executeShell(command, text: text, fields: destination.setupFields)
+        case .pasteBack:
+            try await executePasteBack(text: text, sourceBundleId: sourceBundleId)
+        }
+    }
+
+    // MARK: - Paste Back
+
+    private func executePasteBack(text: String, sourceBundleId: String?) async throws {
+        // Both `.pasted` and `.copiedForManualPaste` are user-successful outcomes
+        // (text was either pasted or is on the clipboard ready for ⌘V). Only
+        // `.failed` throws. Note: ActionListWindow special-cases pasteBack to
+        // call ClipboardService directly so it can surface the three outcomes
+        // as distinct toasts — this service path is kept for parity but loses
+        // the outcome distinction by necessity (throws/doesn't).
+        let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<ClipboardService.PasteOutcome, Never>) in
+            Task { @MainActor in
+                ClipboardService.shared.pasteResult(text, toBundleId: sourceBundleId) { outcome in
+                    continuation.resume(returning: outcome)
+                }
+            }
+        }
+        if case .failed = outcome {
+            throw OutputDestinationError.pasteBackFailed
         }
     }
 

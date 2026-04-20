@@ -35,7 +35,8 @@ class CaiSettings: ObservableObject {
         static let appearance = "cai_appearance"
         static let anthropicModelName = "cai_anthropicModelName"
         static let openRouterModelName = "cai_openRouterModelName"
-        // apiKey moved to Keychain, see KeychainHelper
+        static let migratedPasteBackDefaultsV3 = "cai_migratedPasteBackDefaultsV3"
+        // apiKey moved to Keychain — see KeychainHelper
     }
 
     // MARK: - Model Provider
@@ -50,6 +51,28 @@ class CaiSettings: ObservableObject {
         case custom = "Custom"
 
         var id: String { rawValue }
+
+        // MARK: - Feature Flags
+
+        /// Launch flag — hide Anthropic from the provider picker.
+        /// Kept off so the launch story stays focused on local/on-device models; power users
+        /// who want Anthropic/OpenRouter/etc. can route through the Custom provider.
+        /// Flip to `true` to re-enable post-launch (rebuild required).
+        /// All Anthropic code paths (LLMService.generateWithAnthropic, Keychain entry,
+        /// anthropicModelName, anthropicApiKey, tests) remain intact — only the UI is hidden.
+        static let showAnthropic = false
+
+        /// Provider cases visible in the Settings picker. Respects feature flags.
+        /// Note: persisted `selectedProvider` of a hidden case is intentionally not migrated —
+        /// an existing selection stays honored until the user changes it.
+        static var visibleCases: [ModelProvider] {
+            allCases.filter { provider in
+                switch provider {
+                case .anthropic: return showAnthropic
+                default: return true
+                }
+            }
+        }
 
         /// Base URL (without /v1) for each provider
         var defaultURL: String {
@@ -359,8 +382,11 @@ class CaiSettings: ObservableObject {
         let providerRaw = defaults.string(forKey: Keys.modelProvider) ?? ModelProvider.lmstudio.rawValue
         self.modelProvider = ModelProvider(rawValue: providerRaw) ?? .lmstudio
 
-        self.customModelURL = defaults.string(forKey: Keys.customModelURL)
-            ?? "http://127.0.0.1:8080"
+        // Default to empty string so that selecting Custom without a configured URL
+        // short-circuits the status check (see LLMService.checkStatus guard on
+        // `baseURL.isEmpty`) and avoids noisy CFNetwork "Connection refused" logs.
+        // The TextField in Settings shows "http://127.0.0.1:8080" as a placeholder.
+        self.customModelURL = defaults.string(forKey: Keys.customModelURL) ?? ""
 
         self.modelName = defaults.string(forKey: Keys.modelName) ?? ""
 
@@ -423,9 +449,40 @@ class CaiSettings: ObservableObject {
 
         if let data = defaults.data(forKey: Keys.outputDestinations),
            let decoded = try? JSONDecoder().decode([OutputDestination].self, from: data) {
-            self.outputDestinations = decoded
+            // Seed any built-in destinations added after the user's first launch.
+            // Existing users loaded `decoded` from UserDefaults, so new entries in
+            // `BuiltInDestinations.all` won't appear otherwise.
+            let existingIds = Set(decoded.map(\.id))
+            let missingBuiltIns = BuiltInDestinations.all.filter { !existingIds.contains($0.id) }
+            var working = missingBuiltIns.isEmpty ? decoded : decoded + missingBuiltIns
+
+            // One-shot migration: promote Replace Selection to on-by-default and
+            // position 0 (Cmd+1). Runs once per user; after that, their order and
+            // enabled state is their own. Intentionally overrides explicit opt-out
+            // from the brief window where paste-back shipped as off-by-default.
+            var migrationChanged = !missingBuiltIns.isEmpty
+            if !defaults.bool(forKey: Keys.migratedPasteBackDefaultsV3) {
+                let pasteBackId = BuiltInDestinations.pasteBack.id
+                if let idx = working.firstIndex(where: { $0.id == pasteBackId }) {
+                    var pasteBack = working.remove(at: idx)
+                    pasteBack.isEnabled = true
+                    working.insert(pasteBack, at: 0)
+                    migrationChanged = true
+                }
+                defaults.set(true, forKey: Keys.migratedPasteBackDefaultsV3)
+            }
+
+            self.outputDestinations = working
+            // didSet doesn't fire during init, so persist by hand when a
+            // migration mutated the list — otherwise it re-runs every launch.
+            if migrationChanged, let data = try? JSONEncoder().encode(working) {
+                defaults.set(data, forKey: Keys.outputDestinations)
+            }
         } else {
             self.outputDestinations = BuiltInDestinations.all
+            // Fresh install — canonical order already matches, just set the flag
+            // so the migration doesn't run next launch.
+            defaults.set(true, forKey: Keys.migratedPasteBackDefaultsV3)
         }
 
         let installedSlugs = defaults.stringArray(forKey: Keys.installedExtensions) ?? []

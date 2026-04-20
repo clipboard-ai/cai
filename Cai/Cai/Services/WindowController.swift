@@ -70,7 +70,11 @@ class WindowController: NSObject, ObservableObject {
             queue: .main
         ) { [weak self] notification in
             let message = notification.userInfo?["message"] as? String ?? "Copied to Clipboard"
-            self?.showToast(message: message)
+            if let duration = notification.userInfo?["duration"] as? TimeInterval {
+                self?.showToast(message: message, duration: duration)
+            } else {
+                self?.showToast(message: message)
+            }
         }
     }
 
@@ -574,8 +578,10 @@ class WindowController: NSObject, ObservableObject {
 
     // MARK: - Toast Notification
 
-    /// Shows a pill-shaped toast notification that auto-dismisses after 1.5 seconds.
-    func showToast(message: String) {
+    /// Shows a pill-shaped toast notification that auto-dismisses after `duration` seconds.
+    /// Default is 1.5s. Callers can override per-message via the `duration` arg or
+    /// the notification userInfo `"duration"` key when a message needs more read time.
+    func showToast(message: String, duration: TimeInterval = 1.5) {
         hideToast()
 
         // Pure AppKit toast — no NSHostingView. NSHostingView on borderless
@@ -643,7 +649,7 @@ class WindowController: NSObject, ObservableObject {
             panel.animator().alphaValue = 1
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             self?.hideToast()
         }
     }

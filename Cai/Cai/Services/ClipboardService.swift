@@ -87,6 +87,152 @@ class ClipboardService {
         }
     }
 
+    /// Outcome of a paste-back attempt.
+    enum PasteOutcome {
+        /// Cmd+V was posted to the source app. Caller should toast "Replaced selection".
+        case pasted
+        /// Source app was no longer frontmost at paste time (user switched apps,
+        /// tabs, DMs, etc.). The response has been written to the clipboard and
+        /// the caller should toast "Response copied — switch back and ⌘V to paste".
+        case copiedForManualPaste
+        /// Accessibility revoked or CGEvent creation failed. Caller should show
+        /// an error toast.
+        case failed
+    }
+
+    /// Attempts to paste `text` into the app identified by `bundleId`.
+    ///
+    /// Three-way frontmost check at paste time:
+    /// - **Source app is frontmost** → paste directly.
+    /// - **Cai itself is frontmost** → Cai's activation is sticky after panel
+    ///   dismiss (macOS doesn't auto-yield). Activate the source app, wait
+    ///   briefly for focus to swap, then paste. This is the normal path for
+    ///   both the chip click and auto-replace.
+    /// - **Some other app is frontmost** → user actively switched during
+    ///   generation (different tab, app, DM). Don't yank them back; copy
+    ///   the text and return `.copiedForManualPaste` so they can ⌘V at will.
+    ///
+    /// Completion fires `.pasted` immediately after the CGEvent post (not
+    /// after the 400ms snapshot restore) so callers can update UI without
+    /// waiting.
+    ///
+    /// Requirements: Accessibility permission, App Sandbox disabled. Keycode
+    /// for V is 9 (kVK_ANSI_V).
+    func pasteResult(_ text: String, toBundleId bundleId: String?, completion: @escaping (PasteOutcome) -> Void) {
+        let pasteboard = NSPasteboard.general
+
+        // Preflight: without accessibility, CGEventSource builds fine but the
+        // posted event is silently dropped. Call AXIsProcessTrusted() directly
+        // rather than PermissionsManager.shared.hasAccessibilityPermission —
+        // the latter is a cached @Published property refreshed by a poll timer,
+        // so recently-revoked permission can still read as granted.
+        guard AXIsProcessTrusted() else {
+            print("❌ Paste aborted — accessibility permission missing")
+            completion(.failed)
+            return
+        }
+
+        let frontmostBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let caiBundleId = Bundle.main.bundleIdentifier
+        let sourceIsFrontmost = bundleId != nil && bundleId == frontmostBundleId
+        let caiIsFrontmost = frontmostBundleId != nil && frontmostBundleId == caiBundleId
+
+        // Case 3: user actively moved to an unrelated app. Respect it — don't
+        // force-activate the source (would leak AI output into the wrong
+        // context, e.g. Slack DM with the wrong person). Copy instead.
+        if !sourceIsFrontmost && !caiIsFrontmost && bundleId != nil {
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            print("📋 User moved from \(bundleId ?? "nil") to \(frontmostBundleId ?? "unknown"); copied for manual paste")
+            completion(.copiedForManualPaste)
+            return
+        }
+
+        // Case 2: Cai is still frontmost (panel just dismissed or we never left).
+        // Activate the source app and give the WindowServer a moment to swap
+        // focus before posting Cmd+V.
+        let activationDelay: TimeInterval
+        if caiIsFrontmost,
+           let id = bundleId,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: id).first {
+            app.activate(options: [])
+            activationDelay = 0.08
+        } else {
+            // Case 1: source is already frontmost, or no bundle id known.
+            activationDelay = 0
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + activationDelay) {
+            let snapshot = PasteboardSnapshot(pasteboard)
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            let ourChangeCount = pasteboard.changeCount
+
+            guard let eventSource = CGEventSource(stateID: .privateState),
+                  let keyDown = CGEvent(keyboardEventSource: eventSource, virtualKey: 9, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: 9, keyDown: false) else {
+                print("❌ Failed to create CGEvent for paste")
+                snapshot.restore(to: pasteboard)
+                completion(.failed)
+                return
+            }
+
+            keyDown.flags = .maskCommand
+            keyUp.flags = .maskCommand
+            keyDown.post(tap: .cgAnnotatedSessionEventTap)
+            keyUp.post(tap: .cgAnnotatedSessionEventTap)
+
+            print("⌨️ Posted Cmd+V via CGEvent to \(bundleId ?? "frontmost app")")
+
+            // Fire completion immediately so the caller can dismiss UI. Run the
+            // snapshot restore detached — 400ms is enough for fast apps (~50ms)
+            // through slow Electron (~200ms). Skip the restore if changeCount
+            // moved (another process wrote during the window).
+            completion(.pasted)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if pasteboard.changeCount == ourChangeCount {
+                    snapshot.restore(to: pasteboard)
+                }
+            }
+        }
+    }
+
+    /// Snapshot of every NSPasteboardItem on the pasteboard at a moment in time.
+    /// Captures every declared type per item as raw Data, so images, file URLs,
+    /// RTF, plain text etc. all survive a clear + restore cycle. NSPasteboardItem
+    /// instances themselves are invalidated by `clearContents()`, so we can't
+    /// just hang on to the original objects: we have to extract the data eagerly
+    /// and rebuild fresh items on restore.
+    private struct PasteboardSnapshot {
+        private let items: [[NSPasteboard.PasteboardType: Data]]
+
+        init(_ pasteboard: NSPasteboard) {
+            self.items = pasteboard.pasteboardItems?.map { item in
+                var dict: [NSPasteboard.PasteboardType: Data] = [:]
+                for type in item.types {
+                    if let data = item.data(forType: type) {
+                        dict[type] = data
+                    }
+                }
+                return dict
+            } ?? []
+        }
+
+        func restore(to pasteboard: NSPasteboard) {
+            pasteboard.clearContents()
+            guard !items.isEmpty else { return }
+            let fresh = items.map { dict -> NSPasteboardItem in
+                let item = NSPasteboardItem()
+                for (type, data) in dict {
+                    item.setData(data, forType: type)
+                }
+                return item
+            }
+            pasteboard.writeObjects(fresh)
+        }
+    }
+
     /// Reads text content from the system clipboard
     /// - Returns: Trimmed text content, or nil if clipboard is empty or doesn't contain text
     func readClipboard() -> String? {

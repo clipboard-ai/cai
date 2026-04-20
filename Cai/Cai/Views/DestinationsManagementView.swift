@@ -567,6 +567,13 @@ struct DestinationsManagementView: View {
         case .shell(let command):
             formTypeTag = "shell"
             formShellCommand = command
+        case .pasteBack:
+            // pasteBack is a built-in destination and has no editable fields.
+            // Built-in rows don't render an Edit button, so this case should be
+            // unreachable — assert in debug, no-op in release rather than silently
+            // coercing to a webhook form.
+            assertionFailure("pasteBack is a built-in destination and cannot be edited")
+            return
         }
     }
 
@@ -680,6 +687,10 @@ struct DestinationsManagementView: View {
                 .map { "  \($0)" }.joined(separator: "\n")
             yaml += "\ntype: applescript"
             yaml += "\napplescript: |\n\(indented)"
+
+        case .pasteBack:
+            // pasteBack is built-in only; not shareable as an extension.
+            return
         }
 
         // Setup fields
