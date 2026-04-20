@@ -456,6 +456,25 @@ struct SettingsView: View {
                                 .labelsHidden()
                         }
                         .accessibilityLabel("Send crash reports to help improve Cai")
+
+                        settingsDivider
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Window Size")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.caiTextPrimary)
+                                Text("Drag the window edges to resize. Reset returns it to the default Spotlight size.")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                            }
+                            Spacer()
+                            Button("Reset") {
+                                NotificationCenter.default.post(name: .caiResetWindowSize, object: nil)
+                            }
+                            .controlSize(.small)
+                            .accessibilityLabel("Reset window size to default")
+                        }
                     }
 
                     // Feedback & bug links

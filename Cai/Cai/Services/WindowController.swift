@@ -76,6 +76,27 @@ class WindowController: NSObject, ObservableObject {
                 self?.showToast(message: message)
             }
         }
+        NotificationCenter.default.addObserver(
+            forName: .caiResetWindowSize,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.resetCurrentWindowSize()
+        }
+    }
+
+    /// Clears saved window dimensions and animates the current window (if visible)
+    /// back to the default Spotlight footprint. Invoked by Settings → General.
+    private func resetCurrentWindowSize() {
+        Self.resetWindowSize()
+        guard let window = window else { return }
+        let newSize = NSSize(width: Self.windowWidth, height: Self.fixedWindowHeight)
+        var frame = window.frame
+        // Keep the window centered on its current origin so it doesn't jump visually.
+        let oldCenter = NSPoint(x: frame.midX, y: frame.midY)
+        frame.size = newSize
+        frame.origin = NSPoint(x: oldCenter.x - newSize.width / 2, y: oldCenter.y - newSize.height / 2)
+        window.setFrame(frame, display: true, animate: true)
     }
 
     deinit {
@@ -92,17 +113,31 @@ class WindowController: NSObject, ObservableObject {
         return headerHeight + dividerHeight + contentHeight + dividerHeight + footerHeight
     }
 
+    private static let widthKey = "cai_windowWidth"
     private static let heightKey = "cai_windowHeight"
 
-    private static func saveWindowHeight(_ height: CGFloat) {
-        UserDefaults.standard.set(Double(height), forKey: heightKey)
+    private static func saveWindowSize(_ size: NSSize) {
+        UserDefaults.standard.set(Double(size.width), forKey: widthKey)
+        UserDefaults.standard.set(Double(size.height), forKey: heightKey)
     }
 
-    private static func loadWindowHeight() -> CGFloat? {
+    private static func loadWindowSize() -> NSSize? {
         let defaults = UserDefaults.standard
-        guard defaults.object(forKey: heightKey) != nil else { return nil }
-        let height = CGFloat(defaults.double(forKey: heightKey))
-        return height >= fixedWindowHeight ? height : nil
+        guard defaults.object(forKey: widthKey) != nil || defaults.object(forKey: heightKey) != nil else { return nil }
+        let width = defaults.object(forKey: widthKey) != nil
+            ? max(CGFloat(defaults.double(forKey: widthKey)), windowWidth)
+            : windowWidth
+        let height = defaults.object(forKey: heightKey) != nil
+            ? max(CGFloat(defaults.double(forKey: heightKey)), fixedWindowHeight)
+            : fixedWindowHeight
+        return NSSize(width: width, height: height)
+    }
+
+    /// Clears any persisted window size so the next open returns to defaults.
+    /// Invoked by the Settings → General "Reset window size" button.
+    static func resetWindowSize() {
+        UserDefaults.standard.removeObject(forKey: widthKey)
+        UserDefaults.standard.removeObject(forKey: heightKey)
     }
 
     /// Shows the action window in settings mode (triggered by menu bar left-click).
@@ -194,7 +229,9 @@ class WindowController: NSObject, ObservableObject {
         // Reset selection state
         selectionState = SelectionState()
 
-        let windowHeight = Self.loadWindowHeight() ?? Self.fixedWindowHeight
+        let savedSize = Self.loadWindowSize()
+        let currentWidth = savedSize?.width ?? Self.windowWidth
+        let windowHeight = savedSize?.height ?? Self.fixedWindowHeight
 
         // Create dismiss/execute closures
         let dismissAction: () -> Void = { [weak self] in
@@ -222,9 +259,8 @@ class WindowController: NSObject, ObservableObject {
         // to avoid double-handling).
         let hostingView = KeyEventHostingView(
             rootView: actionList
-                .frame(width: Self.windowWidth)
         )
-        hostingView.frame = NSRect(x: 0, y: 0, width: Self.windowWidth, height: windowHeight)
+        hostingView.frame = NSRect(x: 0, y: 0, width: currentWidth, height: windowHeight)
         hostingView.autoresizingMask = [.width, .height]  // follow panel when user drags to resize
         hostingView.wantsLayer = true
         hostingView.layer?.cornerRadius = Self.cornerRadius
@@ -232,10 +268,11 @@ class WindowController: NSObject, ObservableObject {
         hostingView.layer?.masksToBounds = true
 
         // Create borderless resizable CaiPanel (custom subclass returns YES from canBecomeKey).
-        // `.resizable` lets the user drag the bottom edge to grow the window; min/max
-        // size pin the width so only vertical resize is possible.
+        // `.resizable` + min=default-size lets the user grow the window from any
+        // edge or corner (Finder-style), but never shrink below the canonical
+        // Spotlight footprint. Both dimensions saved across launches.
         let panel = CaiPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.windowWidth, height: windowHeight),
+            contentRect: NSRect(x: 0, y: 0, width: currentWidth, height: windowHeight),
             styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
@@ -247,7 +284,7 @@ class WindowController: NSObject, ObservableObject {
         panel.isMovableByWindowBackground = true  // Drag to reposition
         panel.contentView = hostingView
         panel.minSize = NSSize(width: Self.windowWidth, height: Self.fixedWindowHeight)
-        panel.maxSize = NSSize(width: Self.windowWidth, height: .greatestFiniteMagnitude)
+        panel.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
         // Allow the panel to become key so we receive keyboard events
         panel.isFloatingPanel = true
@@ -259,7 +296,7 @@ class WindowController: NSObject, ObservableObject {
             panel.setFrameOrigin(savedOrigin)
         } else if let screen = NSScreen.main ?? NSScreen.screens.first {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.midX - Self.windowWidth / 2
+            let x = screenFrame.midX - currentWidth / 2
             let y = screenFrame.midY - windowHeight / 2 + 50
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
@@ -283,10 +320,10 @@ class WindowController: NSObject, ObservableObject {
     }
 
     func hideWindow() {
-        // Save window position and resized height before dismissing
+        // Save window position and resized dimensions before dismissing
         if let frame = window?.frame {
             Self.saveWindowPosition(frame.origin)
-            Self.saveWindowHeight(frame.height)
+            Self.saveWindowSize(frame.size)
         }
         removeEventMonitors()
 
