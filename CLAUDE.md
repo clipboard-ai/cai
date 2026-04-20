@@ -10,7 +10,7 @@ In QA mode, flag any code that doesn't match DESIGN.md.
 
 ## What is Cai?
 
-Native macOS menu bar clipboard manager (SwiftUI + AppKit). User presses **Option+C** anywhere, Cai detects the clipboard content type and shows context-aware actions powered by local LLMs. Privacy-first — no cloud, no telemetry, everything runs locally.
+Native macOS menu bar clipboard manager (SwiftUI + AppKit). User presses **Option+C** anywhere, Cai detects the clipboard content type and shows context-aware actions powered by an LLM. Privacy-first and local-by-default — no telemetry; runs fully on-device with the built-in MLX model or Apple Intelligence. Optional cloud providers (OpenRouter, Anthropic) available for power users who want frontier-model quality.
 
 ## Build & Run
 
