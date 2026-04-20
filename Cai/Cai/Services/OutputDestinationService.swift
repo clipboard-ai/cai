@@ -124,8 +124,10 @@ actor OutputDestinationService {
         let resolvedBody = resolveTemplate(compactBody, text: escapeForJSON(trimmedText), fields: fields)
 
         #if DEBUG
-        print("🌐 Webhook URL: \(resolvedURL)")
-        print("🌐 Webhook body: \(resolvedBody.prefix(500))")
+        // Log host + length only — resolved URL can carry query-param secrets,
+        // and the body contains clipboard + LLM output after template resolution.
+        let webhookHost = URL(string: resolvedURL)?.host ?? "unknown"
+        print("🌐 Webhook → \(webhookHost), body: \(resolvedBody.count) chars")
         #endif
 
         guard let url = URL(string: resolvedURL) else {
@@ -150,7 +152,9 @@ actor OutputDestinationService {
 
         let responseBody = String(data: data, encoding: .utf8) ?? ""
         #if DEBUG
-        print("🌐 Webhook response: \(http.statusCode) — \(responseBody.prefix(300))")
+        // Log status + length only — webhook servers sometimes echo clipboard
+        // content, request bodies, or user identifiers back in responses.
+        print("🌐 Webhook response: \(http.statusCode) (\(responseBody.count) chars)")
         #endif
 
         guard (200...299).contains(http.statusCode) else {

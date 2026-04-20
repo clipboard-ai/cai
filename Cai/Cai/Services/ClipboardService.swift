@@ -250,7 +250,9 @@ class ClipboardService {
             return nil
         }
 
-        print("📋 Clipboard read: \(trimmed.prefix(50))\(trimmed.count > 50 ? "..." : "")")
+        // Deliberately log length only — clipboard content may include passwords,
+        // API keys, or other secrets that must never leave the process.
+        print("📋 Clipboard read: \(trimmed.count) chars")
         return trimmed
     }
 }
