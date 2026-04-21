@@ -80,13 +80,12 @@ struct ConnectorsSettingsView: View {
         }
         .onAppear {
             WindowController.acceptsFilterInput = false
-            // Pre-populate API key inputs with masked state
+            // Start every field empty. Whether a key already exists in Keychain is
+            // surfaced via the "Key saved in Keychain" indicator below the field —
+            // NOT by pre-filling dots into the editable text, which would corrupt
+            // any pasted replacement token (dots get prepended to the new value).
             for config in configManager.serverConfigs {
-                if let key = config.authKeychainKey, KeychainHelper.get(forKey: key) != nil {
-                    apiKeyInputs[config.id] = "••••••••"
-                } else {
-                    apiKeyInputs[config.id] = ""
-                }
+                apiKeyInputs[config.id] = ""
             }
         }
     }
@@ -387,12 +386,27 @@ struct ConnectorsSettingsView: View {
         guard let keychainKey = config.authKeychainKey else { return }
         let input = apiKeyInputs[config.id] ?? ""
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Don't save the masked placeholder
-        guard !trimmed.isEmpty, trimmed != "••••••••" else { return }
+        guard !trimmed.isEmpty else { return }
 
         KeychainHelper.set(trimmed, forKey: keychainKey)
-        apiKeyInputs[config.id] = "••••••••"
+        // Clear the field after save — the "Key saved in Keychain" indicator below
+        // confirms success. Leaving the raw token in the field is a minor privacy risk.
+        apiKeyInputs[config.id] = ""
+
+        // Invalidate any live connection and cached metadata (repo lists, team lists,
+        // etc.) that were tied to the previous token. Without this, MCPClientService
+        // short-circuits on its "already connected" check and keeps serving the old
+        // account's data until the app restarts.
+        let configId = config.id
+        Task {
+            await MCPClientService.shared.disconnect(configId: configId)
+        }
+
+        NotificationCenter.default.post(
+            name: .caiShowToast,
+            object: nil,
+            userInfo: ["message": "Key saved. Reconnecting..."]
+        )
     }
 
     private func testConnection(_ config: MCPServerConfig) {
@@ -400,6 +414,9 @@ struct ConnectorsSettingsView: View {
         testResult = nil
 
         Task {
+            // Force a fresh connection so the test actually validates the current
+            // Keychain state instead of short-circuiting on a stale in-memory connection.
+            await MCPClientService.shared.disconnect(configId: config.id)
             do {
                 try await MCPClientService.shared.connect(config: config)
                 let status = await MCPClientService.shared.status(for: config.id)

@@ -136,7 +136,7 @@ struct ModelSetupView: View {
             .padding(.horizontal, 40)
 
             // Download instead
-            Button("Download built-in model instead") {
+            Button("Download built-in MLX model instead") {
                 appleIntelligenceAvailable = false
             }
             .font(.system(size: 11, weight: .medium))

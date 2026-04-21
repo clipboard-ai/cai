@@ -49,6 +49,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
             print("Status bar item created with Cai logo")
+            // Build info — kept in logs so bug reports always include which build the user was running.
+            // No secrets or PII; bundle ID, version, build number, and DEBUG/RELEASE only.
+            let bundleId = Bundle.main.bundleIdentifier ?? "unknown"
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+            let buildNum = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+            #if DEBUG
+            let config = "DEBUG"
+            #else
+            let config = "RELEASE"
+            #endif
+            print("Build: \(bundleId) v\(version) (\(buildNum)) [\(config)]")
         } else {
             print("Failed to create status bar button")
         }

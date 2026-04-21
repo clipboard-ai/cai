@@ -355,21 +355,30 @@ class WindowController: NSObject, ObservableObject {
     // MARK: - Event Monitors
 
     private func installEventMonitors() {
-        // Monitor for clicks outside the window to dismiss (LOCAL events — within our app)
+        // Monitor for clicks outside the window to dismiss (LOCAL events — within our app).
+        // Fast path: if the event targets our own window, let it flow to the responder
+        // chain without a frame check. Otherwise we race against SwiftUI animations
+        // (e.g., window resize on filter-text change or settings open) — a click on a
+        // button that lands a pixel outside the mid-animation frame would incorrectly
+        // dismiss the window, swallowing the button action.
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self = self, let window = self.window else { return event }
-            let windowFrame = window.frame
 
-            // Convert to screen coordinates
+            // Click is inside our own panel — pass through, the view will handle it.
+            if event.window === window {
+                return event
+            }
+
+            // Click is on a different window in our process (NSMenu popup, sheet,
+            // auxiliary panel). Dismiss only if the click lands outside our frame.
+            let windowFrame = window.frame
             if let eventWindow = event.window {
                 let screenPoint = eventWindow.convertPoint(toScreen: event.locationInWindow)
                 if !windowFrame.contains(screenPoint) {
                     self.hideWindow()
                 }
-            } else {
-                if !windowFrame.contains(event.locationInWindow) {
-                    self.hideWindow()
-                }
+            } else if !windowFrame.contains(event.locationInWindow) {
+                self.hideWindow()
             }
             return event
         }

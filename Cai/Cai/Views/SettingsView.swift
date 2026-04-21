@@ -85,19 +85,43 @@ struct SettingsView: View {
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
 
-                                    SecureField("sk-ant-...", text: $settings.anthropicApiKey)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .accessibilityLabel("Anthropic API key")
+                                    HStack(spacing: 6) {
+                                        SecureField("sk-ant-...", text: $settings.anthropicApiKey)
+                                            .textFieldStyle(.roundedBorder)
+                                            .font(.system(size: 12, design: .monospaced))
+                                            .accessibilityLabel("Anthropic API key")
+                                        if !settings.anthropicApiKey.isEmpty {
+                                            Button(action: { settings.anthropicApiKey = "" }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("Clear key (required before pasting a new one)")
+                                            .accessibilityLabel("Clear Anthropic API key")
+                                        }
+                                    }
 
                                     Text("API key from [console.anthropic.com](https://console.anthropic.com/)")
                                         .font(.system(size: 10))
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
                                 } else if settings.modelProvider == .openrouter {
-                                    SecureField("sk-or-v1-...", text: $settings.openRouterApiKey)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .accessibilityLabel("OpenRouter API key")
+                                    HStack(spacing: 6) {
+                                        SecureField("sk-or-v1-...", text: $settings.openRouterApiKey)
+                                            .textFieldStyle(.roundedBorder)
+                                            .font(.system(size: 12, design: .monospaced))
+                                            .accessibilityLabel("OpenRouter API key")
+                                        if !settings.openRouterApiKey.isEmpty {
+                                            Button(action: { settings.openRouterApiKey = "" }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("Clear key (required before pasting a new one)")
+                                            .accessibilityLabel("Clear OpenRouter API key")
+                                        }
+                                    }
 
                                     Text("API key from [openrouter.ai/keys](https://openrouter.ai/keys)")
                                         .font(.system(size: 10))
@@ -181,10 +205,22 @@ struct SettingsView: View {
                                         .foregroundColor(.caiTextSecondary.opacity(0.6))
 
                                     // API Key (optional, for cloud or auth-enabled servers)
-                                    SecureField("Optional", text: $settings.apiKey)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .accessibilityLabel("API key for authenticated LLM providers")
+                                    HStack(spacing: 6) {
+                                        SecureField("Optional", text: $settings.apiKey)
+                                            .textFieldStyle(.roundedBorder)
+                                            .font(.system(size: 12, design: .monospaced))
+                                            .accessibilityLabel("API key for authenticated LLM providers")
+                                        if !settings.apiKey.isEmpty {
+                                            Button(action: { settings.apiKey = "" }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                            }
+                                            .buttonStyle(.plain)
+                                            .help("Clear key (required before pasting a new one)")
+                                            .accessibilityLabel("Clear API key")
+                                        }
+                                    }
 
                                     Text("API key — leave blank for local servers without auth")
                                         .font(.system(size: 10))
