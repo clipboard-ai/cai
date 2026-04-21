@@ -48,7 +48,7 @@ class WindowController: NSObject, ObservableObject {
     private var cachedPassThrough: Bool = false
     private var cachedDismissTime: Date?
     private var cacheCleanupTimer: Timer?
-    private static let resumeTimeout: TimeInterval = 8
+    private static let resumeTimeout: TimeInterval = 7
 
     /// Layout constants
     private static let windowWidth: CGFloat = 540
@@ -369,15 +369,17 @@ class WindowController: NSObject, ObservableObject {
                 return event
             }
 
-            // Click is on a different window in our process (NSMenu popup, sheet,
-            // auxiliary panel). Dismiss only if the click lands outside our frame.
-            let windowFrame = window.frame
-            if let eventWindow = event.window {
-                let screenPoint = eventWindow.convertPoint(toScreen: event.locationInWindow)
-                if !windowFrame.contains(screenPoint) {
-                    self.hideWindow()
-                }
-            } else if !windowFrame.contains(event.locationInWindow) {
+            // Otherwise the click targets a different window in our process (NSMenu,
+            // popover, sheet) or no window at all. Use the global mouse location as
+            // ground truth — per-window coord translation can lie during resize/
+            // animation races with .resizable panels, causing spurious dismissals
+            // on legitimate in-window clicks (e.g. the gear icon).
+            let mouseScreen = NSEvent.mouseLocation
+            // Inflate the hit rect slightly so resize-grabber margins around a
+            // borderless .resizable panel don't read as "outside".
+            let slack: CGFloat = 4
+            let hitRect = window.frame.insetBy(dx: -slack, dy: -slack)
+            if !hitRect.contains(mouseScreen) {
                 self.hideWindow()
             }
             return event

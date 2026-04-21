@@ -78,9 +78,15 @@ struct ResultView: View {
                             .font(.system(size: 12))
                             .foregroundColor(.caiTextSecondary)
                             .multilineTextAlignment(.center)
-                        Text("Check Settings \u{2192} Model Provider")
-                            .font(.system(size: 11))
-                            .foregroundColor(.caiTextSecondary.opacity(0.5))
+                        // Only show the "Check Settings → Model Provider" hint when the
+                        // error actually looks like an LLM/provider issue. Non-LLM errors
+                        // (e.g. extension install rejected, shell command failed) shouldn't
+                        // point the user at the wrong settings page.
+                        if looksLikeProviderError(error) {
+                            Text("Check Settings \u{2192} Model Provider")
+                                .font(.system(size: 11))
+                                .foregroundColor(.caiTextSecondary.opacity(0.5))
+                        }
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Error: \(error)")
@@ -228,6 +234,24 @@ struct ResultView: View {
                 isFollowUpFocused = false
             }
         }
+    }
+
+    /// Heuristic: does this error message look like it came from the LLM / model
+    /// provider (connection, API key, model not loaded) — as opposed to a domain
+    /// error like "shell extensions can't be installed from clipboard"?
+    ///
+    /// Used to suppress the "Check Settings → Model Provider" hint on non-LLM errors,
+    /// where pointing the user at the Model Provider settings would be misleading.
+    private func looksLikeProviderError(_ error: String) -> Bool {
+        let lower = error.lowercased()
+        let providerKeywords = [
+            "llm", "model", "provider", "api key", "api_key",
+            "connection refused", "connection failed", "unreachable",
+            "timed out", "no ai model", "load model", "not loaded",
+            "check settings", "server", "ollama", "lm studio",
+            "openrouter", "anthropic", "apple intelligence"
+        ]
+        return providerKeywords.contains { lower.contains($0) }
     }
 
     /// Parses a markdown string into an AttributedString for rich rendering.

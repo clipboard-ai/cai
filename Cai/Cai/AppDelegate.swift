@@ -284,17 +284,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else if let content = clipboardService.readClipboard() {
             clipboardHistory.recordCurrentClipboard()
 
-            // Clamp text to prevent oversized LLM requests and UI slowdown
-            let clampedContent = content.count > ClipboardHistory.maxTextLength
-                ? String(content.prefix(ClipboardHistory.maxTextLength))
-                : content
-
-            let detection = contentDetector.detect(clampedContent)
+            // No clamping here: ClipboardHistory already stores only the first
+            // `maxTextLength` (10K) chars for its own UI, and `LLMService.truncateMessages`
+            // caps the LLM input at 50K. Pre-clamping to 10K here would prevent the
+            // LLM cap from ever engaging and silently cut useful context for long
+            // summaries. The action list header surfaces a subtle "X chars → 50K
+            // for AI" note when the clipboard exceeds the LLM cap.
+            let detection = contentDetector.detect(content)
             print("Detected: \(detection.type.rawValue) (confidence: \(detection.confidence))")
             CrashReportingService.shared.addBreadcrumb(category: "content", message: "Detected: \(detection.type.rawValue)")
 
             windowController.showActionWindow(
-                text: clampedContent,
+                text: content,
                 detection: detection,
                 sourceApp: sourceApp,
                 sourceBundleId: sourceBundleId

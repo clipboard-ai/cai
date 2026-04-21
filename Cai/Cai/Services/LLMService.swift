@@ -420,9 +420,19 @@ actor LLMService {
     /// over ~12K chars and surface a contentFiltered/length error from its side.
     private static let maxMessageChars: Int = 50_000
 
+    /// Public read-only accessor so views can display an informational note
+    /// (e.g. "truncated to 50K chars for AI") when the user's clipboard exceeds
+    /// this threshold. Keep the private storage so only `truncateMessages` can
+    /// decide how truncation actually behaves.
+    nonisolated static var maxMessageCharsPublic: Int { maxMessageChars }
+
     /// Truncates each message's content to `maxMessageChars`. Logs when truncation occurs.
     /// Applied at this single chokepoint so all providers (MLX, Apple FM, external HTTP)
     /// get the same behavior automatically.
+    ///
+    /// The user-facing hint for truncation lives in the action list header (see
+    /// `ActionListWindow.headerView`) — shown **before** the LLM runs so the user
+    /// knows what to expect, rather than after the fact.
     private static func truncateMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
         return messages.map { msg in
             guard msg.content.count > maxMessageChars else { return msg }

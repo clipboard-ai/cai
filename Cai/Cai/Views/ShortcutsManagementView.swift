@@ -92,6 +92,24 @@ struct ShortcutsManagementView: View {
                         .buttonStyle(.plain)
                         .padding(.horizontal, 8)
                     }
+
+                    // Browse community extensions — always visible, so users can
+                    // discover new actions without having to empty their own list first.
+                    if onBrowseExtensions != nil && !settings.shortcuts.isEmpty && !isAddingNew && editingShortcutId == nil {
+                        Button(action: { onBrowseExtensions?() }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "square.grid.2x2")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("Browse Community Extensions")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundColor(.caiPrimary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 8)
+                    }
                 }
                 .padding(.vertical, 8)
                 .padding(.horizontal, 4)

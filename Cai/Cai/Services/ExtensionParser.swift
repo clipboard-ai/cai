@@ -92,7 +92,7 @@ struct ExtensionParser {
             case .unsupportedType(let type):
                 return "Unknown extension type: \(type)"
             case .blockedType(let type):
-                return "\(type) extensions must be created locally for security"
+                return "\(type) extensions can't be installed from clipboard for security.\n\nInstall from Browse Extensions, or create one in Settings → Custom Actions."
             case .insecureURL:
                 return "Webhook URL must use HTTPS"
             }

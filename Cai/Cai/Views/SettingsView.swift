@@ -250,16 +250,19 @@ struct SettingsView: View {
                     }
 
                     // MARK: Extensions Group
+                    // Order: Custom Actions → Destinations → Connectors.
+                    // Destinations sit closer to Actions because users create both.
+                    // Connectors is last — it's a curated list (no user-created connectors yet).
                     settingsGroup(title: "Extensions") {
                         navRow(label: "Custom Actions", count: settings.shortcuts.count, action: onShowShortcuts)
 
                         settingsDivider
 
-                        connectorsNavRow
+                        navRow(label: "Destinations", count: settings.enabledDestinations.count, total: settings.outputDestinations.count, action: onShowDestinations)
 
                         settingsDivider
 
-                        navRow(label: "Destinations", count: settings.enabledDestinations.count, total: settings.outputDestinations.count, action: onShowDestinations)
+                        connectorsNavRow
                     }
 
                     Button(action: onShowExtensions ?? {}) {
@@ -843,6 +846,9 @@ struct SettingsView: View {
 
     private var updateBadge: some View {
         Button(action: {
+            // Dismiss Cai first so the Sparkle update dialog isn't obscured by
+            // our floating panel (Cai's .floating window level would cover it).
+            onDismiss?()
             sparkleUpdater.checkForUpdates()
         }) {
             Text("Check for Updates")

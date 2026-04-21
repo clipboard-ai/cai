@@ -750,6 +750,9 @@ struct ActionListWindow: View {
                 Spacer()
 
                 Button("Update") {
+                    // Dismiss Cai first so the Sparkle update dialog isn't obscured
+                    // by our floating panel.
+                    onDismiss()
                     sparkleUpdater.checkForUpdates()
                 }
                 .font(.system(size: 10, weight: .semibold))
@@ -808,9 +811,24 @@ struct ActionListWindow: View {
                 .foregroundColor(.caiPrimary)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(labelForType(detection.type))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary)
+                HStack(spacing: 4) {
+                    Text(labelForType(detection.type))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.caiTextSecondary)
+
+                    // Subtle, in-place hint when the clipboard exceeds the LLM input
+                    // cap. Informational (not a warning) — the user didn't do anything
+                    // wrong, Cai just trims overly long inputs before sending them to
+                    // the model. Follows Apple HIG: secondary text, in context, non-blocking,
+                    // tense-neutral (arrow implies transformation — no "will be" / "was"
+                    // ambiguity since non-LLM actions wouldn't truncate at all).
+                    // Numbers use locale-aware thousands separators (Finder-style).
+                    if text.count > LLMService.maxMessageCharsPublic {
+                        Text("(\(text.count.formatted()) chars → \(LLMService.maxMessageCharsPublic.formatted()) for AI)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.caiTextSecondary.opacity(0.7))
+                    }
+                }
 
                 if !text.isEmpty {
                     Text(text)
@@ -993,9 +1011,7 @@ struct ActionListWindow: View {
 
             Button(action: {
                 selectionState.filterText = ""
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    showSettings = true
-                }
+                showSettings = true
             }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12, weight: .medium))
