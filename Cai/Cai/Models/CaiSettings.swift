@@ -52,28 +52,6 @@ class CaiSettings: ObservableObject {
 
         var id: String { rawValue }
 
-        // MARK: - Feature Flags
-
-        /// Launch flag — hide Anthropic from the provider picker.
-        /// Kept off so the launch story stays focused on local/on-device models; power users
-        /// who want Anthropic/OpenRouter/etc. can route through the Custom provider.
-        /// Flip to `true` to re-enable post-launch (rebuild required).
-        /// All Anthropic code paths (LLMService.generateWithAnthropic, Keychain entry,
-        /// anthropicModelName, anthropicApiKey, tests) remain intact — only the UI is hidden.
-        static let showAnthropic = false
-
-        /// Provider cases visible in the Settings picker. Respects feature flags.
-        /// Note: persisted `selectedProvider` of a hidden case is intentionally not migrated —
-        /// an existing selection stays honored until the user changes it.
-        static var visibleCases: [ModelProvider] {
-            allCases.filter { provider in
-                switch provider {
-                case .anthropic: return showAnthropic
-                default: return true
-                }
-            }
-        }
-
         /// Base URL (without /v1) for each provider
         var defaultURL: String {
             switch self {

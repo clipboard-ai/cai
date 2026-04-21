@@ -61,7 +61,7 @@ struct SettingsView: View {
                         settingsSection(title: "Model Provider") {
                             VStack(alignment: .leading, spacing: 8) {
                                 Picker("", selection: $settings.modelProvider) {
-                                    ForEach(CaiSettings.ModelProvider.visibleCases) { provider in
+                                    ForEach(CaiSettings.ModelProvider.allCases) { provider in
                                         Text(provider.rawValue).tag(provider)
                                     }
                                 }
