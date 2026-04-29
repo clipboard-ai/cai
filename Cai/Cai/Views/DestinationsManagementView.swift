@@ -423,7 +423,10 @@ struct DestinationsManagementView: View {
                     Text(isNew ? "Add" : "Save")
                         .font(.system(size: 11, weight: .semibold))
                 }
-                .disabled(formName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(
+                    formName.trimmingCharacters(in: .whitespaces).isEmpty ||
+                    (formTypeTag == "webhook" && !isWebhookHeadersValid)
+                )
             }
         }
         .padding(12)
@@ -477,9 +480,23 @@ struct DestinationsManagementView: View {
             Text("Headers (JSON)")
                 .font(.system(size: 10))
                 .foregroundColor(.caiTextSecondary)
-            TextField("{\"Content-Type\": \"application/json\"}", text: $formWebhookHeaders)
-                .textFieldStyle(.roundedBorder)
+            TextEditor(text: $formWebhookHeaders)
                 .font(.system(size: 11, design: .monospaced))
+                .frame(height: 60)
+                .padding(4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.caiSurface.opacity(0.6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Color.caiDivider.opacity(0.5), lineWidth: 0.5)
+                )
+            if !isWebhookHeadersValid {
+                Text("⚠ Invalid JSON — must be an object like {\"Key\": \"value\"}")
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+            }
 
             Text("Body template (use {{result}} for text, {{field}} for setup values)")
                 .font(.system(size: 10))
@@ -562,6 +579,22 @@ struct DestinationsManagementView: View {
             return ["Content-Type": "application/json"]
         }
         return dict
+    }
+
+    /// Whether the webhook headers field currently contains a valid `[String: String]`
+    /// JSON object (or is empty — empty falls back to the default Content-Type).
+    /// Used to gate the Save button and show an inline warning. Without this gate
+    /// the form would silently fall back to defaults on parse failure, which looked
+    /// like a save bug from the user's perspective.
+    private var isWebhookHeadersValid: Bool {
+        let trimmed = formWebhookHeaders.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return true }
+        let normalized = formWebhookHeaders.normalizingSmartQuotes()
+        guard let data = normalized.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data) as? [String: String]) != nil else {
+            return false
+        }
+        return true
     }
 
     private func loadFormFromDestination(_ dest: OutputDestination) {
