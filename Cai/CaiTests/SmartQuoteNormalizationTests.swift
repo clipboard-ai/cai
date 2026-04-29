@@ -39,6 +39,28 @@ final class SmartQuoteNormalizationTests: XCTestCase {
         XCTAssertEqual("quoted\u{201D}".normalizingSmartQuotes(), "quoted\"")
     }
 
+    // The implementation also handles four less-common variants used in
+    // German/Czech typography and occasional rich-text paste. macOS
+    // smart-quote autocorrect doesn't *produce* these, but they can arrive
+    // via paste — and the implementation handles them, so the tests should
+    // too.
+
+    func testLowSingleQuote() {
+        XCTAssertEqual("foo\u{201A}bar".normalizingSmartQuotes(), "foo'bar")
+    }
+
+    func testReversedSingleQuote() {
+        XCTAssertEqual("foo\u{201B}bar".normalizingSmartQuotes(), "foo'bar")
+    }
+
+    func testLowDoubleQuote() {
+        XCTAssertEqual("foo\u{201E}bar".normalizingSmartQuotes(), "foo\"bar")
+    }
+
+    func testReversedDoubleQuote() {
+        XCTAssertEqual("foo\u{201F}bar".normalizingSmartQuotes(), "foo\"bar")
+    }
+
     func testAllFourTogether() {
         let input  = "\u{2018}a\u{2019} and \u{201C}b\u{201D}"
         let expect = "'a' and \"b\""

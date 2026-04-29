@@ -37,8 +37,13 @@ final class CrashReportingService {
                 // Sentry's hang detector flags this as a 2s+ hang the moment the user
                 // takes >2s to click OK. It's a UX choice in Sparkle, not a bug in Cai.
                 // Drop these so they don't drown out real hangs.
-                if event.exceptions?.contains(where: { $0.type == "App Hanging" }) == true {
-                    let frames = (event.threads ?? []).flatMap { $0.stacktrace?.frames ?? [] }
+                //
+                // Scope the frame check to the App Hanging exception's own stacktrace
+                // (not all threads) — otherwise a Sparkle background thread doing an
+                // update check during an unrelated main-thread hang would mask the
+                // real signal.
+                if let hangException = event.exceptions?.first(where: { $0.type == "App Hanging" }) {
+                    let frames = hangException.stacktrace?.frames ?? []
                     let inSparkle = frames.contains { frame in
                         (frame.package?.contains("Sparkle") == true) ||
                         (frame.module?.contains("Sparkle") == true) ||

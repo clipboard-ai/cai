@@ -540,7 +540,7 @@ struct DestinationsManagementView: View {
         case "applescript":
             return .applescript(template: formAppleScript.normalizingSmartQuotes())
         case "webhook":
-            let headers = parseHeaders(formWebhookHeaders)
+            let headers = parseHeaders(formWebhookHeaders.normalizingSmartQuotes())
             return .webhook(WebhookConfig(
                 url: formWebhookURL.normalizingSmartQuotes(),
                 method: formWebhookMethod,
