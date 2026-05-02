@@ -21,6 +21,10 @@ struct ActionGenerator {
         let hidden = settings.hiddenBuiltInActions
 
         // Pinned custom shortcuts come first, ahead of Ask AI and all built-ins.
+        // Order is user-defined: `settings.shortcuts` is maintained as
+        // pinned-first, where the user's drag order in
+        // `ShortcutsManagementView` determines the relative order within the
+        // pinned section. Iterating `where sc.pinned` preserves that order.
         for sc in settings.shortcuts where sc.pinned {
             items.append(actionItem(from: sc, clipboardText: text, shortcut: shortcut))
             shortcut += 1

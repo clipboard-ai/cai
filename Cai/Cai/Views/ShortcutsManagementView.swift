@@ -10,6 +10,9 @@ struct ShortcutsManagementView: View {
 
     @State private var editingShortcutId: UUID?
     @State private var isAddingNew: Bool = false
+    /// Tracks which row is hovered so the leading icon can morph into a pin
+    /// affordance for unpinned shortcuts (mirrors `ClipboardHistoryView`).
+    @State private var hoveredShortcutId: UUID?
 
     // Form fields
     @State private var formName: String = ""
@@ -17,6 +20,33 @@ struct ShortcutsManagementView: View {
     @State private var formValue: String = ""
     @State private var formAutoReplace: Bool = false
     @State private var formPinned: Bool = false
+
+    /// Display order for the Settings list and the action list: pinned first
+    /// (in user-defined drag order), unpinned after (also in user order).
+    /// `settings.shortcuts` is the canonical store; this is only a view.
+    private var orderedShortcuts: [CaiShortcut] {
+        settings.shortcuts.filter(\.pinned) + settings.shortcuts.filter { !$0.pinned }
+    }
+
+    /// Drag-to-reorder handler. Operates on `orderedShortcuts` indices, then
+    /// re-sorts so the pinned-first invariant holds: a row dragged across the
+    /// pinned/unpinned boundary snaps back to the boundary on drop.
+    private func moveShortcut(from source: IndexSet, to destination: Int) {
+        var working = orderedShortcuts
+        working.move(fromOffsets: source, toOffset: destination)
+        settings.shortcuts = working.filter(\.pinned) + working.filter { !$0.pinned }
+    }
+
+    /// Toggle pin from the leading icon button. Maintains the pinned-first
+    /// invariant so the row visually moves to its new section on toggle.
+    private func togglePin(_ shortcut: CaiShortcut) {
+        guard let index = settings.shortcuts.firstIndex(where: { $0.id == shortcut.id }) else { return }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            settings.shortcuts[index].pinned.toggle()
+            let all = settings.shortcuts
+            settings.shortcuts = all.filter(\.pinned) + all.filter { !$0.pinned }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,77 +76,91 @@ struct ShortcutsManagementView: View {
             Divider()
                 .background(Color.caiDivider)
 
-            // Content
-            ScrollView {
-                VStack(spacing: 8) {
-                    if settings.shortcuts.isEmpty && !isAddingNew {
-                        emptyState
-                    } else {
-                        // Existing shortcuts
-                        ForEach(settings.shortcuts) { shortcut in
+            // Content — `List` (not `ScrollView { VStack }`) so `.onMove` can wire
+            // up drag-to-reorder. `.listStyle(.plain)` + per-row clear background
+            // strips List's default chrome so rows keep their card aesthetic.
+            List {
+                if settings.shortcuts.isEmpty && !isAddingNew {
+                    emptyState
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                } else {
+                    ForEach(orderedShortcuts) { shortcut in
+                        Group {
                             if editingShortcutId == shortcut.id {
                                 shortcutForm(isNew: false, shortcutId: shortcut.id)
                             } else {
                                 shortcutRow(shortcut)
                             }
                         }
-
-                        // Add new form
-                        if isAddingNew {
-                            shortcutForm(isNew: true, shortcutId: nil)
-                        }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
                     }
+                    .onMove(perform: moveShortcut)
 
-                    // Add button (when not already adding)
-                    if !isAddingNew && editingShortcutId == nil {
-                        Button(action: {
-                            formName = ""
-                            formType = .prompt
-                            formValue = ""
-                            formAutoReplace = false
-                            formPinned = false
-                            isAddingNew = true
-                            WindowController.passThrough = true
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 12, weight: .medium))
-                                Text("Add Action")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .foregroundColor(.caiPrimary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.caiPrimary.opacity(0.1))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 8)
-                    }
-
-                    // Browse community extensions — always visible, so users can
-                    // discover new actions without having to empty their own list first.
-                    if onBrowseExtensions != nil && !settings.shortcuts.isEmpty && !isAddingNew && editingShortcutId == nil {
-                        Button(action: { onBrowseExtensions?() }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "square.grid.2x2")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text("Browse Community Extensions")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundColor(.caiPrimary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 8)
+                    if isAddingNew {
+                        shortcutForm(isNew: true, shortcutId: nil)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
                     }
                 }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 4)
+
+                // Add button (when not already adding)
+                if !isAddingNew && editingShortcutId == nil {
+                    Button(action: {
+                        formName = ""
+                        formType = .prompt
+                        formValue = ""
+                        formAutoReplace = false
+                        formPinned = false
+                        isAddingNew = true
+                        WindowController.passThrough = true
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("Add Action")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundColor(.caiPrimary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.caiPrimary.opacity(0.1))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                }
+
+                // Browse community extensions — always visible, so users can
+                // discover new actions without having to empty their own list first.
+                if onBrowseExtensions != nil && !settings.shortcuts.isEmpty && !isAddingNew && editingShortcutId == nil {
+                    Button(action: { onBrowseExtensions?() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.grid.2x2")
+                                .font(.system(size: 10, weight: .medium))
+                            Text("Browse Community Extensions")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.caiPrimary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
 
             Spacer(minLength: 0)
 
@@ -168,31 +212,42 @@ struct ShortcutsManagementView: View {
     // MARK: - Shortcut Row
 
     private func shortcutRow(_ shortcut: CaiShortcut) -> some View {
-        HStack(spacing: 12) {
-            // Icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.caiSurface.opacity(0.6))
-                    .frame(width: 28, height: 28)
+        let isHovered = hoveredShortcutId == shortcut.id
+        // Show the pin glyph when pinned (always) or hovered (progressive disclosure
+        // for unpinned rows — same pattern as `ClipboardHistoryView.historyRow`).
+        let showPinIcon = shortcut.pinned || isHovered
 
-                Image(systemName: shortcut.type.icon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.caiTextSecondary)
+        return HStack(spacing: 12) {
+            // Leading icon — doubles as pin toggle on hover.
+            Button(action: { togglePin(shortcut) }) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(shortcut.pinned
+                              ? Color.caiPrimary.opacity(0.15)
+                              : Color.caiSurface.opacity(0.6))
+                        .frame(width: 28, height: 28)
+
+                    if showPinIcon {
+                        Image(systemName: shortcut.pinned ? "pin.fill" : "pin")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(shortcut.pinned
+                                             ? .caiPrimary
+                                             : .caiTextSecondary.opacity(0.5))
+                    } else {
+                        Image(systemName: shortcut.type.icon)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.caiTextSecondary)
+                    }
+                }
             }
+            .buttonStyle(.plain)
+            .help(shortcut.pinned ? "Unpin" : "Pin to top")
 
             // Name + value preview
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Text(shortcut.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.caiTextPrimary)
-                    if shortcut.pinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(.caiPrimary)
-                            .accessibilityLabel("Pinned to top of action list")
-                    }
-                }
+                Text(shortcut.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.caiTextPrimary)
 
                 Text(shortcut.value)
                     .font(.system(size: 11))
@@ -251,6 +306,9 @@ struct ShortcutsManagementView: View {
                 .fill(Color.clear)
         )
         .contentShape(Rectangle())
+        .onHover { hovering in
+            hoveredShortcutId = hovering ? shortcut.id : nil
+        }
     }
 
     // MARK: - Shortcut Form (Add / Edit)
@@ -364,7 +422,7 @@ struct ShortcutsManagementView: View {
                     Text("Pin to top")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.caiTextPrimary)
-                    Text("Show this action above the built-ins and assign the first ⌘ numbers.")
+                    Text("Show this action in the default list above the built-ins. Drag rows to reorder; pinned ones stay on top.")
                         .font(.system(size: 10))
                         .foregroundColor(.caiTextSecondary.opacity(0.6))
                         .fixedSize(horizontal: false, vertical: true)
@@ -440,6 +498,10 @@ struct ShortcutsManagementView: View {
             )
             withAnimation(.easeInOut(duration: 0.15)) {
                 settings.shortcuts.append(shortcut)
+                // Re-enforce pinned-first: a newly-pinned shortcut goes to the
+                // end of the pinned section; a new unpinned goes to the end.
+                let all = settings.shortcuts
+                settings.shortcuts = all.filter(\.pinned) + all.filter { !$0.pinned }
             }
         } else if let id = shortcutId,
                   let index = settings.shortcuts.firstIndex(where: { $0.id == id }) {
@@ -449,6 +511,11 @@ struct ShortcutsManagementView: View {
                 settings.shortcuts[index].value = trimmedValue
                 settings.shortcuts[index].autoReplaceSelection = autoReplace
                 settings.shortcuts[index].pinned = formPinned
+                // Re-enforce pinned-first invariant if the user just toggled
+                // pin status: stable sort moves the edited shortcut to the
+                // appropriate boundary while preserving everything else's order.
+                let all = settings.shortcuts
+                settings.shortcuts = all.filter(\.pinned) + all.filter { !$0.pinned }
             }
         }
 
