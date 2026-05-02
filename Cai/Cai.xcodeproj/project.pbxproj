@@ -49,6 +49,8 @@
 		CAI00118 /* SparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00119 /* SparkleUpdater.swift */; };
 		CAI00120 /* OutputDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00121 /* OutputDestination.swift */; };
 		CAI00122 /* BuiltInDestinations.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00123 /* BuiltInDestinations.swift */; };
+		CAI00510 /* BuiltInActionID.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00511 /* BuiltInActionID.swift */; };
+		CAI00520 /* BuiltInActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00521 /* BuiltInActionsView.swift */; };
 		CAI00124 /* OutputDestinationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00125 /* OutputDestinationService.swift */; };
 		CAI00126 /* DestinationsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00127 /* DestinationsManagementView.swift */; };
 		CAI00128 /* DestinationChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00129 /* DestinationChip.swift */; };
@@ -135,6 +137,8 @@
 		CAI00119 /* SparkleUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdater.swift; sourceTree = "<group>"; };
 		CAI00121 /* OutputDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDestination.swift; sourceTree = "<group>"; };
 		CAI00123 /* BuiltInDestinations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInDestinations.swift; sourceTree = "<group>"; };
+		CAI00511 /* BuiltInActionID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInActionID.swift; sourceTree = "<group>"; };
+		CAI00521 /* BuiltInActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInActionsView.swift; sourceTree = "<group>"; };
 		CAI00125 /* OutputDestinationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDestinationService.swift; sourceTree = "<group>"; };
 		CAI00127 /* DestinationsManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationsManagementView.swift; sourceTree = "<group>"; };
 		CAI00129 /* DestinationChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationChip.swift; sourceTree = "<group>"; };
@@ -276,6 +280,7 @@
 				CAI00113 /* CaiShortcut.swift */,
 				CAI00121 /* OutputDestination.swift */,
 				CAI00123 /* BuiltInDestinations.swift */,
+				CAI00511 /* BuiltInActionID.swift */,
 				CAI00181 /* MCPModels.swift */,
 				CAI00401 /* ContextSnippet.swift */,
 			);
@@ -299,6 +304,7 @@
 				CAI00107 /* AboutView.swift */,
 				CAI00109 /* KeyboardHint.swift */,
 				CAI00115 /* ShortcutsManagementView.swift */,
+				CAI00521 /* BuiltInActionsView.swift */,
 				CAI00117 /* OnboardingPermissionView.swift */,
 				CAI00127 /* DestinationsManagementView.swift */,
 				CAI00129 /* DestinationChip.swift */,
@@ -460,6 +466,8 @@
 				CAI00118 /* SparkleUpdater.swift in Sources */,
 				CAI00120 /* OutputDestination.swift in Sources */,
 				CAI00122 /* BuiltInDestinations.swift in Sources */,
+				CAI00510 /* BuiltInActionID.swift in Sources */,
+				CAI00520 /* BuiltInActionsView.swift in Sources */,
 				CAI00124 /* OutputDestinationService.swift in Sources */,
 				CAI00126 /* DestinationsManagementView.swift in Sources */,
 				CAI00128 /* DestinationChip.swift in Sources */,

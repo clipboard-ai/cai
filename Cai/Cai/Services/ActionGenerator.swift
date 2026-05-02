@@ -31,9 +31,9 @@ struct ActionGenerator {
         }
 
         // Ask AI — first built-in, hideable.
-        if !hidden.contains("custom_prompt") {
+        if !hidden.contains(BuiltInActionID.askAI.rawValue) {
             items.append(ActionItem(
-                id: "custom_prompt",
+                id: BuiltInActionID.askAI.rawValue,
                 title: "Ask AI",
                 subtitle: text.isEmpty ? "Ask anything" : "Ask AI anything about this content",
                 icon: "bolt.fill",
@@ -84,9 +84,9 @@ struct ActionGenerator {
 
         // MARK: Word
         case .word:
-            if !hidden.contains("define_word") {
+            if !hidden.contains(BuiltInActionID.defineWord.rawValue) {
                 items.append(ActionItem(
-                    id: "define_word",
+                    id: BuiltInActionID.defineWord.rawValue,
                     title: "Define Word",
                     subtitle: "Look up definition",
                     icon: "character.book.closed",
@@ -103,24 +103,27 @@ struct ActionGenerator {
         // MARK: Meeting
         case .meeting:
             let dateText = detection.entities.dateText ?? "event"
-            items.append(ActionItem(
-                id: "create_event",
-                title: "Create Calendar Event",
-                subtitle: dateText,
-                icon: "calendar.badge.plus",
-                shortcut: shortcut,
-                type: .createCalendar(
-                    title: "Meeting",
-                    date: detection.entities.date ?? Date(),
-                    location: detection.entities.location,
-                    description: "\"\(text)\""
-                )
-            ))
-            shortcut += 1
-
-            if let location = detection.entities.location {
+            if !hidden.contains(BuiltInActionID.createEvent.rawValue) {
                 items.append(ActionItem(
-                    id: "open_maps",
+                    id: BuiltInActionID.createEvent.rawValue,
+                    title: "Create Calendar Event",
+                    subtitle: dateText,
+                    icon: "calendar.badge.plus",
+                    shortcut: shortcut,
+                    type: .createCalendar(
+                        title: "Meeting",
+                        date: detection.entities.date ?? Date(),
+                        location: detection.entities.location,
+                        description: "\"\(text)\""
+                    )
+                ))
+                shortcut += 1
+            }
+
+            if let location = detection.entities.location,
+               !hidden.contains(BuiltInActionID.openMaps.rawValue) {
+                items.append(ActionItem(
+                    id: BuiltInActionID.openMaps.rawValue,
                     title: "Open in Maps",
                     subtitle: location,
                     icon: "map",
@@ -132,16 +135,18 @@ struct ActionGenerator {
 
         // MARK: Address
         case .address:
-            let address = detection.entities.address ?? text
-            items.append(ActionItem(
-                id: "open_maps",
-                title: "Open in Maps",
-                subtitle: address,
-                icon: "map",
-                shortcut: shortcut,
-                type: .openMaps(address)
-            ))
-            shortcut += 1
+            if !hidden.contains(BuiltInActionID.openMaps.rawValue) {
+                let address = detection.entities.address ?? text
+                items.append(ActionItem(
+                    id: BuiltInActionID.openMaps.rawValue,
+                    title: "Open in Maps",
+                    subtitle: address,
+                    icon: "map",
+                    shortcut: shortcut,
+                    type: .openMaps(address)
+                ))
+                shortcut += 1
+            }
 
         // MARK: URL
         case .url:
@@ -157,9 +162,11 @@ struct ActionGenerator {
 
             if textBeyondURL <= 30 {
                 // Bare URL — just Open in Browser, no text actions
-                if let urlString = detection.entities.url, let url = URL(string: urlString) {
+                if let urlString = detection.entities.url,
+                   let url = URL(string: urlString),
+                   !hidden.contains(BuiltInActionID.openURL.rawValue) {
                     items.append(ActionItem(
-                        id: "open_url",
+                        id: BuiltInActionID.openURL.rawValue,
                         title: "Open in Browser",
                         subtitle: urlString,
                         icon: "safari",
@@ -167,6 +174,10 @@ struct ActionGenerator {
                         type: .openURL(url)
                     ))
                 }
+                // appendTextActions stays false regardless of hide state — bare
+                // URLs aren't useful targets for prose actions even if Open in
+                // Browser is hidden. Filter-to-reveal recovers Open in Browser
+                // by name when needed.
                 appendTextActions = false
             }
             // URL+text: text actions will be appended below, then Open in Browser at the end
@@ -186,14 +197,20 @@ struct ActionGenerator {
 
         // MARK: JSON
         case .json:
-            items.append(ActionItem(
-                id: "pretty_print",
-                title: "Pretty Print JSON",
-                subtitle: "Format and copy to clipboard",
-                icon: "curlybraces",
-                shortcut: shortcut,
-                type: .jsonPrettyPrint(text)
-            ))
+            if !hidden.contains(BuiltInActionID.prettyPrint.rawValue) {
+                items.append(ActionItem(
+                    id: BuiltInActionID.prettyPrint.rawValue,
+                    title: "Pretty Print JSON",
+                    subtitle: "Format and copy to clipboard",
+                    icon: "curlybraces",
+                    shortcut: shortcut,
+                    type: .jsonPrettyPrint(text)
+                ))
+                shortcut += 1
+            }
+            // JSON content isn't useful for prose actions regardless of
+            // pretty_print visibility. Filter-to-reveal recovers Pretty Print
+            // by name when hidden.
             appendTextActions = false
 
         case .empty:
@@ -214,9 +231,9 @@ struct ActionGenerator {
             shortcut = (items.last?.shortcut ?? 0) + 1
 
             // Summarize — only for longer text (≥100 chars)
-            if text.count >= 100 && !hidden.contains("summarize") {
+            if text.count >= 100 && !hidden.contains(BuiltInActionID.summarize.rawValue) {
                 items.append(ActionItem(
-                    id: "summarize",
+                    id: BuiltInActionID.summarize.rawValue,
                     title: "Summarize",
                     subtitle: "Create a concise summary",
                     icon: "text.redaction",
@@ -226,9 +243,9 @@ struct ActionGenerator {
                 shortcut += 1
             }
 
-            if !hidden.contains("explain") {
+            if !hidden.contains(BuiltInActionID.explain.rawValue) {
                 items.append(ActionItem(
-                    id: "explain",
+                    id: BuiltInActionID.explain.rawValue,
                     title: "Explain",
                     subtitle: "Get an explanation",
                     icon: "lightbulb",
@@ -240,9 +257,9 @@ struct ActionGenerator {
 
             // Reply / Proofread — only for prose content (not meetings, addresses, or single words)
             if isProse {
-                if !hidden.contains("reply") {
+                if !hidden.contains(BuiltInActionID.reply.rawValue) {
                     items.append(ActionItem(
-                        id: "reply",
+                        id: BuiltInActionID.reply.rawValue,
                         title: "Reply",
                         subtitle: "Draft a reply",
                         icon: "arrowshape.turn.up.left",
@@ -252,9 +269,9 @@ struct ActionGenerator {
                     shortcut += 1
                 }
 
-                if !hidden.contains("proofread") {
+                if !hidden.contains(BuiltInActionID.proofread.rawValue) {
                     items.append(ActionItem(
-                        id: "proofread",
+                        id: BuiltInActionID.proofread.rawValue,
                         title: "Fix Grammar",
                         subtitle: "Fix grammar, spelling, and punctuation",
                         icon: "pencil.and.outline",
@@ -265,10 +282,10 @@ struct ActionGenerator {
                 }
             }
 
-            if !hidden.contains("translate") {
+            if !hidden.contains(BuiltInActionID.translate.rawValue) {
                 let lang = settings.translationLanguage
                 items.append(ActionItem(
-                    id: "translate",
+                    id: BuiltInActionID.translate.rawValue,
                     title: "Translate to \(lang)",
                     subtitle: nil,
                     icon: "globe",
@@ -279,9 +296,9 @@ struct ActionGenerator {
             }
 
             // Search — skip for long text (nobody searches a paragraph)
-            if !isLong && !hidden.contains("search_web") {
+            if !isLong && !hidden.contains(BuiltInActionID.searchWeb.rawValue) {
                 items.append(ActionItem(
-                    id: "search_web",
+                    id: BuiltInActionID.searchWeb.rawValue,
                     title: "Search Web",
                     subtitle: nil,
                     icon: "magnifyingglass",
@@ -294,9 +311,10 @@ struct ActionGenerator {
             // URL+text: append Open in Browser after text actions
             if detection.type == .url,
                let urlString = detection.entities.url,
-               let url = URL(string: urlString) {
+               let url = URL(string: urlString),
+               !hidden.contains(BuiltInActionID.openURL.rawValue) {
                 items.append(ActionItem(
-                    id: "open_url",
+                    id: BuiltInActionID.openURL.rawValue,
                     title: "Open in Browser",
                     subtitle: urlString,
                     icon: "safari",
@@ -362,42 +380,44 @@ struct ActionGenerator {
             extras.append(action)
         }
 
-        // Add type-specific actions from other types (only if entity-independent)
-        if detection.type != .json {
-            let jsonAction = ActionItem(
-                id: "pretty_print",
+        // Type-specific actions: surface in filter-to-reveal whenever the
+        // necessary entity is available, regardless of whether the user has
+        // hidden them from the default list. `seenIDs` dedupes against
+        // `primary` so visible actions don't double up.
+
+        // Pretty Print JSON — always recoverable; useful even on non-JSON
+        // clipboards (user might want to paste-format something we didn't
+        // detect as JSON).
+        if !seenIDs.contains(BuiltInActionID.prettyPrint.rawValue) {
+            seenIDs.insert(BuiltInActionID.prettyPrint.rawValue)
+            extras.append(ActionItem(
+                id: BuiltInActionID.prettyPrint.rawValue,
                 title: "Pretty Print JSON",
                 subtitle: "Format and copy to clipboard",
                 icon: "curlybraces",
                 shortcut: 0,
                 type: .jsonPrettyPrint(text)
-            )
-            if !seenIDs.contains(jsonAction.id) {
-                seenIDs.insert(jsonAction.id)
-                extras.append(jsonAction)
-            }
+            ))
         }
 
-        // Define Word — surface in filter-to-reveal even when the user has hidden it
-        // or when the content type isn't a single word.
-        let defineAction = ActionItem(
-            id: "define_word",
-            title: "Define Word",
-            subtitle: "Look up definition",
-            icon: "character.book.closed",
-            shortcut: 0,
-            type: .llmAction(.define)
-        )
-        if !seenIDs.contains(defineAction.id) {
-            seenIDs.insert(defineAction.id)
-            extras.append(defineAction)
-        }
-
-        // Ask AI — surface in filter-to-reveal even when hidden from the default list.
-        if !seenIDs.contains("custom_prompt") {
-            seenIDs.insert("custom_prompt")
+        // Define Word — recoverable regardless of content type or hide state.
+        if !seenIDs.contains(BuiltInActionID.defineWord.rawValue) {
+            seenIDs.insert(BuiltInActionID.defineWord.rawValue)
             extras.append(ActionItem(
-                id: "custom_prompt",
+                id: BuiltInActionID.defineWord.rawValue,
+                title: "Define Word",
+                subtitle: "Look up definition",
+                icon: "character.book.closed",
+                shortcut: 0,
+                type: .llmAction(.define)
+            ))
+        }
+
+        // Ask AI — universal escape hatch; recoverable regardless of hide state.
+        if !seenIDs.contains(BuiltInActionID.askAI.rawValue) {
+            seenIDs.insert(BuiltInActionID.askAI.rawValue)
+            extras.append(ActionItem(
+                id: BuiltInActionID.askAI.rawValue,
                 title: "Ask AI",
                 subtitle: text.isEmpty ? "Ask anything" : "Ask AI anything about this content",
                 icon: "bolt.fill",
@@ -406,26 +426,60 @@ struct ActionGenerator {
             ))
         }
 
-        // Open in Browser — if text contains a URL but wasn't detected as URL type
-        if detection.type != .url, let urlString = extractFirstURL(from: text), let url = URL(string: urlString) {
-            let browserAction = ActionItem(
-                id: "open_url",
+        // Open in Browser — recoverable when text contains a URL (whether or
+        // not the content was detected as URL type, and regardless of hide).
+        if !seenIDs.contains(BuiltInActionID.openURL.rawValue),
+           let urlString = (detection.entities.url ?? extractFirstURL(from: text)),
+           let url = URL(string: urlString) {
+            seenIDs.insert(BuiltInActionID.openURL.rawValue)
+            extras.append(ActionItem(
+                id: BuiltInActionID.openURL.rawValue,
                 title: "Open in Browser",
                 subtitle: urlString,
                 icon: "safari",
                 shortcut: 0,
                 type: .openURL(url)
-            )
-            if !seenIDs.contains(browserAction.id) {
-                seenIDs.insert(browserAction.id)
-                extras.append(browserAction)
-            }
+            ))
         }
 
-        // Search Web — if not already included
-        if !seenIDs.contains("search_web") && text.count <= 500 {
+        // Open in Maps — recoverable when an address-like entity exists. Falls
+        // back to `entities.location` (meeting branch) if no explicit address.
+        if !seenIDs.contains(BuiltInActionID.openMaps.rawValue),
+           let address = detection.entities.address ?? detection.entities.location {
+            seenIDs.insert(BuiltInActionID.openMaps.rawValue)
             extras.append(ActionItem(
-                id: "search_web",
+                id: BuiltInActionID.openMaps.rawValue,
+                title: "Open in Maps",
+                subtitle: address,
+                icon: "map",
+                shortcut: 0,
+                type: .openMaps(address)
+            ))
+        }
+
+        // Create Calendar Event — recoverable when a date entity exists.
+        if !seenIDs.contains(BuiltInActionID.createEvent.rawValue),
+           let date = detection.entities.date {
+            seenIDs.insert(BuiltInActionID.createEvent.rawValue)
+            extras.append(ActionItem(
+                id: BuiltInActionID.createEvent.rawValue,
+                title: "Create Calendar Event",
+                subtitle: detection.entities.dateText ?? "event",
+                icon: "calendar.badge.plus",
+                shortcut: 0,
+                type: .createCalendar(
+                    title: "Meeting",
+                    date: date,
+                    location: detection.entities.location,
+                    description: "\"\(text)\""
+                )
+            ))
+        }
+
+        // Search Web — if not already included and text is short enough
+        if !seenIDs.contains(BuiltInActionID.searchWeb.rawValue) && text.count <= 500 {
+            extras.append(ActionItem(
+                id: BuiltInActionID.searchWeb.rawValue,
                 title: "Search Web",
                 subtitle: nil,
                 icon: "magnifyingglass",
@@ -450,7 +504,7 @@ struct ActionGenerator {
         var items: [ActionItem] = []
 
         items.append(ActionItem(
-            id: "summarize",
+            id: BuiltInActionID.summarize.rawValue,
             title: "Summarize",
             subtitle: "Create a concise summary",
             icon: "text.redaction",
@@ -459,7 +513,7 @@ struct ActionGenerator {
         ))
 
         items.append(ActionItem(
-            id: "explain",
+            id: BuiltInActionID.explain.rawValue,
             title: "Explain",
             subtitle: "Get an explanation",
             icon: "lightbulb",
@@ -468,7 +522,7 @@ struct ActionGenerator {
         ))
 
         items.append(ActionItem(
-            id: "reply",
+            id: BuiltInActionID.reply.rawValue,
             title: "Reply",
             subtitle: "Draft a reply",
             icon: "arrowshape.turn.up.left",
@@ -477,7 +531,7 @@ struct ActionGenerator {
         ))
 
         items.append(ActionItem(
-            id: "proofread",
+            id: BuiltInActionID.proofread.rawValue,
             title: "Fix Grammar",
             subtitle: "Fix grammar, spelling, and punctuation",
             icon: "pencil.and.outline",
@@ -487,7 +541,7 @@ struct ActionGenerator {
 
         let lang = settings.translationLanguage
         items.append(ActionItem(
-            id: "translate",
+            id: BuiltInActionID.translate.rawValue,
             title: "Translate to \(lang)",
             subtitle: nil,
             icon: "globe",
