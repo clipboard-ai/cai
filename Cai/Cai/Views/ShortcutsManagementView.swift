@@ -42,9 +42,9 @@ struct ShortcutsManagementView: View {
     private func togglePin(_ shortcut: CaiShortcut) {
         guard let index = settings.shortcuts.firstIndex(where: { $0.id == shortcut.id }) else { return }
         withAnimation(.easeInOut(duration: 0.15)) {
-            settings.shortcuts[index].pinned.toggle()
-            let all = settings.shortcuts
-            settings.shortcuts = all.filter(\.pinned) + all.filter { !$0.pinned }
+            var copy = settings.shortcuts
+            copy[index].pinned.toggle()
+            settings.shortcuts = copy.filter(\.pinned) + copy.filter { !$0.pinned }
         }
     }
 
@@ -497,25 +497,25 @@ struct ShortcutsManagementView: View {
                 pinned: formPinned
             )
             withAnimation(.easeInOut(duration: 0.15)) {
-                settings.shortcuts.append(shortcut)
-                // Re-enforce pinned-first: a newly-pinned shortcut goes to the
-                // end of the pinned section; a new unpinned goes to the end.
-                let all = settings.shortcuts
-                settings.shortcuts = all.filter(\.pinned) + all.filter { !$0.pinned }
+                // Build the new ordered array in a local, then assign once so
+                // `shortcuts.didSet` (and the `caiInvalidateActionCache` it posts)
+                // fires a single time per save.
+                var copy = settings.shortcuts
+                copy.append(shortcut)
+                settings.shortcuts = copy.filter(\.pinned) + copy.filter { !$0.pinned }
             }
         } else if let id = shortcutId,
                   let index = settings.shortcuts.firstIndex(where: { $0.id == id }) {
             withAnimation(.easeInOut(duration: 0.15)) {
-                settings.shortcuts[index].name = trimmedName
-                settings.shortcuts[index].type = formType
-                settings.shortcuts[index].value = trimmedValue
-                settings.shortcuts[index].autoReplaceSelection = autoReplace
-                settings.shortcuts[index].pinned = formPinned
-                // Re-enforce pinned-first invariant if the user just toggled
-                // pin status: stable sort moves the edited shortcut to the
-                // appropriate boundary while preserving everything else's order.
-                let all = settings.shortcuts
-                settings.shortcuts = all.filter(\.pinned) + all.filter { !$0.pinned }
+                // Mutate a working copy so the @Published didSet fires once,
+                // not once per property assignment.
+                var copy = settings.shortcuts
+                copy[index].name = trimmedName
+                copy[index].type = formType
+                copy[index].value = trimmedValue
+                copy[index].autoReplaceSelection = autoReplace
+                copy[index].pinned = formPinned
+                settings.shortcuts = copy.filter(\.pinned) + copy.filter { !$0.pinned }
             }
         }
 
