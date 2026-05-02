@@ -18,6 +18,7 @@ struct ActionGenerator {
     ) -> [ActionItem] {
         var items: [ActionItem] = []
         var shortcut = 1
+        let hidden = settings.hiddenBuiltInActions
 
         // Pinned custom shortcuts come first, ahead of Ask AI and all built-ins.
         for sc in settings.shortcuts where sc.pinned {
@@ -25,16 +26,18 @@ struct ActionGenerator {
             shortcut += 1
         }
 
-        // Ask AI — first built-in.
-        items.append(ActionItem(
-            id: "custom_prompt",
-            title: "Ask AI",
-            subtitle: text.isEmpty ? "Ask anything" : "Ask AI anything about this content",
-            icon: "bolt.fill",
-            shortcut: shortcut,
-            type: .customPrompt
-        ))
-        shortcut += 1
+        // Ask AI — first built-in, hideable.
+        if !hidden.contains("custom_prompt") {
+            items.append(ActionItem(
+                id: "custom_prompt",
+                title: "Ask AI",
+                subtitle: text.isEmpty ? "Ask anything" : "Ask AI anything about this content",
+                icon: "bolt.fill",
+                shortcut: shortcut,
+                type: .customPrompt
+            ))
+            shortcut += 1
+        }
 
         // Empty clipboard — only Ask AI + destinations (user can also Cmd+N or Cmd+0)
         if detection.type == .empty {
@@ -77,15 +80,17 @@ struct ActionGenerator {
 
         // MARK: Word
         case .word:
-            items.append(ActionItem(
-                id: "define_word",
-                title: "Define Word",
-                subtitle: "Look up definition",
-                icon: "character.book.closed",
-                shortcut: shortcut,
-                type: .llmAction(.define)
-            ))
-            shortcut += 1
+            if !hidden.contains("define_word") {
+                items.append(ActionItem(
+                    id: "define_word",
+                    title: "Define Word",
+                    subtitle: "Look up definition",
+                    icon: "character.book.closed",
+                    shortcut: shortcut,
+                    type: .llmAction(.define)
+                ))
+                shortcut += 1
+            }
 
         // MARK: Short Text, Long Text
         case .shortText, .longText:
@@ -205,7 +210,7 @@ struct ActionGenerator {
             shortcut = (items.last?.shortcut ?? 0) + 1
 
             // Summarize — only for longer text (≥100 chars)
-            if text.count >= 100 {
+            if text.count >= 100 && !hidden.contains("summarize") {
                 items.append(ActionItem(
                     id: "summarize",
                     title: "Summarize",
@@ -217,52 +222,60 @@ struct ActionGenerator {
                 shortcut += 1
             }
 
-            items.append(ActionItem(
-                id: "explain",
-                title: "Explain",
-                subtitle: "Get an explanation",
-                icon: "lightbulb",
-                shortcut: shortcut,
-                type: .llmAction(.explain)
-            ))
-            shortcut += 1
-
-            // Reply / Proofread — only for prose content (not meetings, addresses, or single words)
-            if isProse {
+            if !hidden.contains("explain") {
                 items.append(ActionItem(
-                    id: "reply",
-                    title: "Reply",
-                    subtitle: "Draft a reply",
-                    icon: "arrowshape.turn.up.left",
+                    id: "explain",
+                    title: "Explain",
+                    subtitle: "Get an explanation",
+                    icon: "lightbulb",
                     shortcut: shortcut,
-                    type: .llmAction(.reply)
-                ))
-                shortcut += 1
-
-                items.append(ActionItem(
-                    id: "proofread",
-                    title: "Fix Grammar",
-                    subtitle: "Fix grammar, spelling, and punctuation",
-                    icon: "pencil.and.outline",
-                    shortcut: shortcut,
-                    type: .llmAction(.proofread)
+                    type: .llmAction(.explain)
                 ))
                 shortcut += 1
             }
 
-            let lang = settings.translationLanguage
-            items.append(ActionItem(
-                id: "translate",
-                title: "Translate to \(lang)",
-                subtitle: nil,
-                icon: "globe",
-                shortcut: shortcut,
-                type: .llmAction(.translate(lang))
-            ))
-            shortcut += 1
+            // Reply / Proofread — only for prose content (not meetings, addresses, or single words)
+            if isProse {
+                if !hidden.contains("reply") {
+                    items.append(ActionItem(
+                        id: "reply",
+                        title: "Reply",
+                        subtitle: "Draft a reply",
+                        icon: "arrowshape.turn.up.left",
+                        shortcut: shortcut,
+                        type: .llmAction(.reply)
+                    ))
+                    shortcut += 1
+                }
+
+                if !hidden.contains("proofread") {
+                    items.append(ActionItem(
+                        id: "proofread",
+                        title: "Fix Grammar",
+                        subtitle: "Fix grammar, spelling, and punctuation",
+                        icon: "pencil.and.outline",
+                        shortcut: shortcut,
+                        type: .llmAction(.proofread)
+                    ))
+                    shortcut += 1
+                }
+            }
+
+            if !hidden.contains("translate") {
+                let lang = settings.translationLanguage
+                items.append(ActionItem(
+                    id: "translate",
+                    title: "Translate to \(lang)",
+                    subtitle: nil,
+                    icon: "globe",
+                    shortcut: shortcut,
+                    type: .llmAction(.translate(lang))
+                ))
+                shortcut += 1
+            }
 
             // Search — skip for long text (nobody searches a paragraph)
-            if !isLong {
+            if !isLong && !hidden.contains("search_web") {
                 items.append(ActionItem(
                     id: "search_web",
                     title: "Search Web",
@@ -271,13 +284,13 @@ struct ActionGenerator {
                     shortcut: shortcut,
                     type: .search(text)
                 ))
+                shortcut += 1
             }
 
             // URL+text: append Open in Browser after text actions
             if detection.type == .url,
                let urlString = detection.entities.url,
                let url = URL(string: urlString) {
-                shortcut += 1
                 items.append(ActionItem(
                     id: "open_url",
                     title: "Open in Browser",
@@ -286,6 +299,7 @@ struct ActionGenerator {
                     shortcut: shortcut,
                     type: .openURL(url)
                 ))
+                shortcut += 1
             }
         }
 
@@ -360,19 +374,32 @@ struct ActionGenerator {
             }
         }
 
-        if detection.type != .word {
-            let defineAction = ActionItem(
-                id: "define_word",
-                title: "Define Word",
-                subtitle: "Look up definition",
-                icon: "character.book.closed",
+        // Define Word — surface in filter-to-reveal even when the user has hidden it
+        // or when the content type isn't a single word.
+        let defineAction = ActionItem(
+            id: "define_word",
+            title: "Define Word",
+            subtitle: "Look up definition",
+            icon: "character.book.closed",
+            shortcut: 0,
+            type: .llmAction(.define)
+        )
+        if !seenIDs.contains(defineAction.id) {
+            seenIDs.insert(defineAction.id)
+            extras.append(defineAction)
+        }
+
+        // Ask AI — surface in filter-to-reveal even when hidden from the default list.
+        if !seenIDs.contains("custom_prompt") {
+            seenIDs.insert("custom_prompt")
+            extras.append(ActionItem(
+                id: "custom_prompt",
+                title: "Ask AI",
+                subtitle: text.isEmpty ? "Ask anything" : "Ask AI anything about this content",
+                icon: "bolt.fill",
                 shortcut: 0,
-                type: .llmAction(.define)
-            )
-            if !seenIDs.contains(defineAction.id) {
-                seenIDs.insert(defineAction.id)
-                extras.append(defineAction)
-            }
+                type: .customPrompt
+            ))
         }
 
         // Open in Browser — if text contains a URL but wasn't detected as URL type

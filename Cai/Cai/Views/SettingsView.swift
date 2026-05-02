@@ -284,6 +284,20 @@ struct SettingsView: View {
                     .padding(.horizontal, 4)
                     .padding(.top, -8)
 
+                    // MARK: Built-in Actions Group
+                    // Per-action visibility toggles. Hidden actions stay accessible via type-to-filter.
+                    settingsGroup(title: "Built-in Actions") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(SettingsView.hideableBuiltInActions, id: \.id) { action in
+                                builtInActionToggle(label: action.label, id: action.id)
+                            }
+                            Text("Hidden actions stay accessible by typing to filter.")
+                                .font(.system(size: 10))
+                                .foregroundColor(.caiTextSecondary.opacity(0.6))
+                                .padding(.top, 4)
+                        }
+                    }
+
                     // MARK: Personalization Group
                     // Layered personalization — global "About You" context + per-app Context Snippets.
                     // Both layers feed into `LLMService.buildMessages` and get injected into every
@@ -787,6 +801,45 @@ struct SettingsView: View {
     }
 
     // MARK: - Navigation Row
+
+    // MARK: - Built-in Actions Visibility
+
+    /// Built-in actions the user can hide from the default action list.
+    /// IDs match `ActionItem.id` strings produced by `ActionGenerator`.
+    private struct HideableAction: Identifiable {
+        let id: String
+        let label: String
+    }
+
+    private static let hideableBuiltInActions: [HideableAction] = [
+        HideableAction(id: "custom_prompt", label: "Ask AI"),
+        HideableAction(id: "summarize", label: "Summarize"),
+        HideableAction(id: "explain", label: "Explain"),
+        HideableAction(id: "reply", label: "Reply"),
+        HideableAction(id: "proofread", label: "Fix Grammar"),
+        HideableAction(id: "translate", label: "Translate"),
+        HideableAction(id: "search_web", label: "Search Web"),
+        HideableAction(id: "define_word", label: "Define Word")
+    ]
+
+    private func builtInActionToggle(label: String, id: String) -> some View {
+        Toggle(isOn: Binding(
+            get: { !settings.hiddenBuiltInActions.contains(id) },
+            set: { isVisible in
+                if isVisible {
+                    settings.hiddenBuiltInActions.remove(id)
+                } else {
+                    settings.hiddenBuiltInActions.insert(id)
+                }
+            }
+        )) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextPrimary)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.mini)
+    }
 
     /// Apple Settings-style navigation row: label + optional count badge + chevron.
     private func navRow(label: String, count: Int = 0, total: Int? = nil, action: (() -> Void)? = nil) -> some View {

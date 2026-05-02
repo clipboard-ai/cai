@@ -32,6 +32,7 @@ class CaiSettings: ObservableObject {
         static let aboutYou = "cai_aboutYou"
         static let clipboardHistorySize = "cai_clipboardHistorySize"
         static let installedExtensions = "cai_installedExtensions"
+        static let hiddenBuiltInActions = "cai_hiddenBuiltInActions"
         static let appearance = "cai_appearance"
         static let anthropicModelName = "cai_anthropicModelName"
         static let openRouterModelName = "cai_openRouterModelName"
@@ -143,6 +144,14 @@ class CaiSettings: ObservableObject {
     @Published var installedExtensions: Set<String> {
         didSet {
             defaults.set(Array(installedExtensions), forKey: Keys.installedExtensions)
+        }
+    }
+
+    /// `ActionItem.id` values (e.g. `"reply"`, `"summarize"`) the user has hidden
+    /// from the default action list. Hidden actions remain reachable via type-to-filter.
+    @Published var hiddenBuiltInActions: Set<String> {
+        didSet {
+            defaults.set(Array(hiddenBuiltInActions), forKey: Keys.hiddenBuiltInActions)
         }
     }
 
@@ -465,6 +474,9 @@ class CaiSettings: ObservableObject {
 
         let installedSlugs = defaults.stringArray(forKey: Keys.installedExtensions) ?? []
         self.installedExtensions = Set(installedSlugs)
+
+        let hiddenIds = defaults.stringArray(forKey: Keys.hiddenBuiltInActions) ?? []
+        self.hiddenBuiltInActions = Set(hiddenIds)
 
         // Default to true for launch at login — bool(forKey:) returns false when key is absent,
         // so we check if the key has ever been set explicitly.
