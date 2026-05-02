@@ -83,6 +83,16 @@ class WindowController: NSObject, ObservableObject {
         ) { [weak self] _ in
             self?.resetCurrentWindowSize()
         }
+        // Drop the resume cache when settings that affect action generation
+        // change. Without this, ⌥C within `resumeTimeout` after a settings
+        // toggle restores the stale window with stale actions.
+        NotificationCenter.default.addObserver(
+            forName: .caiInvalidateActionCache,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.clearCache()
+        }
     }
 
     /// Clears saved window dimensions and animates the current window (if visible)

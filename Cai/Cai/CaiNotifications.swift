@@ -17,6 +17,11 @@ extension NSNotification.Name {
     static let caiExecuteAction = NSNotification.Name("CaiExecuteAction")
     static let caiShowClipboardHistory = NSNotification.Name("CaiShowClipboardHistory")
     static let caiShowToast = NSNotification.Name("CaiShowToast")
+    /// Posted by `CaiSettings` whenever a property that affects action generation
+    /// changes (shortcuts, hidden built-ins, output destinations, translation language).
+    /// Observed by `WindowController` (clears the resume cache) and by
+    /// `ActionListWindow` (regenerates its `actions` so an open list stays live).
+    static let caiInvalidateActionCache = NSNotification.Name("CaiInvalidateActionCache")
 
     // System
     static let accessibilityPermissionChanged = NSNotification.Name("AccessibilityPermissionChanged")

@@ -3,7 +3,10 @@ import SwiftUI
 struct ActionListWindow: View {
     let text: String
     let detection: ContentResult
-    let actions: [ActionItem]
+    /// `@State` (not `let`) so `.caiInvalidateActionCache` can regenerate the
+    /// list while the window is open — settings toggled in a sub-screen reflect
+    /// immediately without a dismiss + re-trigger.
+    @State private var actions: [ActionItem]
     @ObservedObject var selectionState: SelectionState
     let sourceApp: String?
     /// Bundle ID of the frontmost app at hotkey time. Used by Context Snippets
@@ -12,6 +15,28 @@ struct ActionListWindow: View {
     let onDismiss: () -> Void
     let onExecute: (ActionItem) -> Void
     var showSettingsOnAppear: Bool = false
+
+    init(
+        text: String,
+        detection: ContentResult,
+        actions: [ActionItem],
+        selectionState: SelectionState,
+        sourceApp: String?,
+        sourceBundleId: String?,
+        onDismiss: @escaping () -> Void,
+        onExecute: @escaping (ActionItem) -> Void,
+        showSettingsOnAppear: Bool = false
+    ) {
+        self.text = text
+        self.detection = detection
+        self._actions = State(initialValue: actions)
+        self.selectionState = selectionState
+        self.sourceApp = sourceApp
+        self.sourceBundleId = sourceBundleId
+        self.onDismiss = onDismiss
+        self.onExecute = onExecute
+        self.showSettingsOnAppear = showSettingsOnAppear
+    }
 
     @State private var showResult: Bool = false
     @State private var resultTitle: String = ""
@@ -199,6 +224,15 @@ struct ActionListWindow: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .caiFilterBackspace)) { _ in
                 handleFilterBackspace()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .caiInvalidateActionCache)) { _ in
+                // Settings that affect action generation just changed.
+                // Regenerate so an open list reflects the new state without
+                // requiring dismiss + re-trigger. `WindowController` separately
+                // observes the same notification to drop its resume cache.
+                actions = ActionGenerator.generateActions(
+                    for: text, detection: detection, settings: settings
+                )
             }
             .onReceive(NotificationCenter.default.publisher(for: .caiShowSettings)) { _ in
                 if showSettings {

@@ -94,7 +94,10 @@ class CaiSettings: ObservableObject {
     }
 
     @Published var translationLanguage: String {
-        didSet { defaults.set(translationLanguage, forKey: Keys.translationLanguage) }
+        didSet {
+            defaults.set(translationLanguage, forKey: Keys.translationLanguage)
+            NotificationCenter.default.post(name: .caiInvalidateActionCache, object: nil)
+        }
     }
 
     @Published var modelProvider: ModelProvider {
@@ -129,6 +132,7 @@ class CaiSettings: ObservableObject {
             if let data = try? JSONEncoder().encode(shortcuts) {
                 defaults.set(data, forKey: Keys.shortcuts)
             }
+            NotificationCenter.default.post(name: .caiInvalidateActionCache, object: nil)
         }
     }
 
@@ -137,6 +141,7 @@ class CaiSettings: ObservableObject {
             if let data = try? JSONEncoder().encode(outputDestinations) {
                 defaults.set(data, forKey: Keys.outputDestinations)
             }
+            NotificationCenter.default.post(name: .caiInvalidateActionCache, object: nil)
         }
     }
 
@@ -152,6 +157,7 @@ class CaiSettings: ObservableObject {
     @Published var hiddenBuiltInActions: Set<String> {
         didSet {
             defaults.set(Array(hiddenBuiltInActions), forKey: Keys.hiddenBuiltInActions)
+            NotificationCenter.default.post(name: .caiInvalidateActionCache, object: nil)
         }
     }
 
