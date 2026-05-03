@@ -1,4 +1,5 @@
 import Cocoa
+import Combine
 import SwiftUI
 #if canImport(FoundationModels)
 import FoundationModels
@@ -18,6 +19,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: NSWindow?
     private var modelSetupWindow: NSWindow?
     private var pendingLLMSetup = false
+    /// Subscription to `BackgroundTaskTracker` — drives the menu bar icon
+    /// pulse while a background shell action is running.
+    private var taskTrackerSubscription: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Apply saved appearance preference
@@ -48,6 +52,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
+            // Layer-backed so we can pulse the icon's opacity via Core Animation
+            // when a background task is in flight (BackgroundTaskTracker).
+            button.wantsLayer = true
+
             print("Status bar item created with Cai logo")
             // Build info — kept in logs so bug reports always include which build the user was running.
             // No secrets or PII; bundle ID, version, build number, and DEBUG/RELEASE only.
@@ -63,6 +71,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             print("Failed to create status bar button")
         }
+
+        // Subscribe to BackgroundTaskTracker so the status bar icon pulses
+        // while any background shell action is running. Using `removeDuplicates`
+        // means we only animate on busy/idle TRANSITIONS, not on every counter
+        // increment (multiple concurrent tasks pulse the same way as one).
+        taskTrackerSubscription = BackgroundTaskTracker.shared.$activeTaskCount
+            .map { $0 > 0 }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] busy in
+                if busy {
+                    self?.startStatusBarPulse()
+                } else {
+                    self?.stopStatusBarPulse()
+                }
+            }
 
         // Check accessibility permission
         permissionsManager.checkAccessibilityPermission()
@@ -549,5 +573,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardService.copySelectedText { [weak self] in
             self?.openWithClipboard(sourceApp: sourceApp, sourceBundleId: sourceBundleId)
         }
+    }
+
+    // MARK: - Status Bar Pulse (background-task indicator)
+
+    /// Starts a continuous opacity pulse on the menu bar icon — visible signal
+    /// that Cai is running a background task (e.g. a `|llm`-containing shell
+    /// shortcut). Idempotent: re-adding the same animation key replaces the
+    /// existing one, so calling this while already pulsing is fine.
+    private func startStatusBarPulse() {
+        guard let button = statusItem?.button else { return }
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 1.0
+        pulse.toValue = 0.45
+        pulse.duration = 0.8
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        button.layer?.add(pulse, forKey: "caiPulse")
+        button.toolTip = "Cai is working\u{2026}"
+    }
+
+    /// Stops the pulse animation and restores the icon to fully opaque.
+    /// Removing the layer animation alone isn't enough — when the in-flight
+    /// pulse cycle ends mid-frame, the layer may settle on a non-1.0 opacity,
+    /// so we explicitly set `alphaValue = 1.0` to guarantee a clean visual reset.
+    private func stopStatusBarPulse() {
+        guard let button = statusItem?.button else { return }
+        button.layer?.removeAnimation(forKey: "caiPulse")
+        button.alphaValue = 1.0
+        button.toolTip = nil
     }
 }

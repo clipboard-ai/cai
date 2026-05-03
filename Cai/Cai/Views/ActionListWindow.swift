@@ -1197,13 +1197,48 @@ struct ActionListWindow: View {
             }
             onDismiss()
 
-        case .shortcutShell(let command):
+        case .shortcutShell(let command, let runInBackground):
             let clipboardText = self.text
+            let bundleId = self.sourceBundleId
+
+            if runInBackground {
+                // Fire-and-forget path: dismiss Cai immediately, run the shell
+                // command off-screen, surface a toast on completion. Used for
+                // `|llm`-containing templates (which would otherwise block the
+                // ResultView for 5-30s) and explicitly-toggled shortcuts where
+                // the user doesn't need to see the output (`say`, Slack TL;DR,
+                // commit-message-to-clipboard, etc.). Menu bar icon pulses while
+                // the task runs (BackgroundTaskTracker → AppDelegate observer).
+                let actionTitle = action.title
+                onDismiss()
+                Task { @MainActor in
+                    BackgroundTaskTracker.shared.start()
+                    defer { BackgroundTaskTracker.shared.end() }
+                    do {
+                        let result = try await Self.runShellCommand(
+                            command, text: clipboardText, sourceBundleId: bundleId
+                        )
+                        let snippet = String(result.prefix(80))
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        NotificationCenter.default.post(
+                            name: .caiShowToast, object: nil,
+                            userInfo: ["message": snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet]
+                        )
+                    } catch {
+                        NotificationCenter.default.post(
+                            name: .caiShowToast, object: nil,
+                            userInfo: ["message": "Failed: \(error.localizedDescription)"]
+                        )
+                    }
+                }
+                return
+            }
+
             let systemPrompt = "You are a helpful assistant. The user ran a shell command on their clipboard text. Help them with any questions about the output. Plain text only \u{2014} no markdown syntax."
             conversationHistory = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: clipboardText)
             isFollowUpEnabled = true
             showResultView(title: action.title) {
-                return try await Self.runShellCommand(command, text: clipboardText, sourceBundleId: self.sourceBundleId)
+                return try await Self.runShellCommand(command, text: clipboardText, sourceBundleId: bundleId)
             }
 
         case .copyText:

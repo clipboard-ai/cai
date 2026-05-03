@@ -17,6 +17,14 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
     /// When true, this shortcut appears at the top of the default action list
     /// (above built-ins) and consumes the first ⌘ numbers.
     var pinned: Bool
+    /// When true (shell-type only), the action dismisses Cai immediately and
+    /// runs the shell command in the background, surfacing completion or error
+    /// via a toast. Useful for slow `|llm`-containing templates and for
+    /// fire-and-forget actions like `say` / Slack webhooks where the user
+    /// doesn't need to see the output. Defaults to false.
+    /// The shortcut editor auto-enables this flag on transition from "no `|llm`"
+    /// to "has `|llm`" in the template (one-shot heuristic; user can override).
+    var runInBackground: Bool
 
     enum ShortcutType: String, Codable, CaseIterable {
         case prompt
@@ -48,13 +56,14 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         }
     }
 
-    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false) {
+    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false, runInBackground: Bool = false) {
         self.id = id
         self.name = name
         self.type = type
         self.value = value
         self.autoReplaceSelection = autoReplaceSelection
         self.pinned = pinned
+        self.runInBackground = runInBackground
     }
 
     // Custom decoder so previously-persisted shortcuts (without newer flags)
@@ -67,10 +76,11 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         self.value = try c.decode(String.self, forKey: .value)
         self.autoReplaceSelection = try c.decodeIfPresent(Bool.self, forKey: .autoReplaceSelection) ?? false
         self.pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        self.runInBackground = try c.decodeIfPresent(Bool.self, forKey: .runInBackground) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, type, value, autoReplaceSelection, pinned
+        case id, name, type, value, autoReplaceSelection, pinned, runInBackground
     }
 }
 

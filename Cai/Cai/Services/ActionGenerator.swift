@@ -579,7 +579,12 @@ struct ActionGenerator {
             let suffix = clipboardText.count > 20 ? "…" : ""
             subtitle = sc.value.replacingOccurrences(of: "%s", with: preview + suffix)
         case .shell:
-            actionType = .shortcutShell(sc.value)
+            // `|llm`-containing templates always run in the background (LLM cold
+            // start + reasoning would otherwise block the ResultView for 5-30s
+            // with no useful streaming UX). Otherwise honor the per-shortcut
+            // user toggle.
+            let runBackground = sc.runInBackground || sc.value.contains("|llm")
+            actionType = .shortcutShell(command: sc.value, runInBackground: runBackground)
             subtitle = sc.value
         }
 

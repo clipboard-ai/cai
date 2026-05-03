@@ -20,6 +20,13 @@ struct ShortcutsManagementView: View {
     @State private var formValue: String = ""
     @State private var formAutoReplace: Bool = false
     @State private var formPinned: Bool = false
+    @State private var formRunInBackground: Bool = false
+    /// Tracks whether the *previous* known formValue contained `|llm`. Used by
+    /// the auto-enable heuristic for "Run in background" so we only fire on
+    /// transitions, never on initial editor population (which would otherwise
+    /// override a user's persisted opt-out for a `|llm` shortcut).
+    /// Reset explicitly when the form is opened (Add or Edit) and on cancel.
+    @State private var lastFormValueHadLLM: Bool = false
 
     /// Display order for the Settings list and the action list: pinned first
     /// (in user-defined drag order), unpinned after (also in user order).
@@ -116,6 +123,8 @@ struct ShortcutsManagementView: View {
                         formValue = ""
                         formAutoReplace = false
                         formPinned = false
+                        formRunInBackground = false
+                        lastFormValueHadLLM = false  // empty value, no |llm
                         isAddingNew = true
                         WindowController.passThrough = true
                     }) {
@@ -276,6 +285,12 @@ struct ShortcutsManagementView: View {
                 formValue = shortcut.value
                 formAutoReplace = shortcut.autoReplaceSelection
                 formPinned = shortcut.pinned
+                formRunInBackground = shortcut.runInBackground
+                // Seed the tracker with the loaded value's |llm state so the
+                // *first* onChange triggered by populating formValue doesn't
+                // mistakenly auto-flip the toggle on (which would override the
+                // user's persisted choice for `|llm`-foreground shortcuts).
+                lastFormValueHadLLM = shortcut.value.contains("|llm")
                 editingShortcutId = shortcut.id
                 WindowController.passThrough = true
             }) {
@@ -416,6 +431,26 @@ struct ShortcutsManagementView: View {
                 .controlSize(.mini)
             }
 
+            // Run in background, shell-type only.
+            // Auto-enabled when the template contains `|llm` (the editor's
+            // onChange handler below sets it on transition into `|llm`).
+            // User can override either way.
+            if formType == .shell {
+                Toggle(isOn: $formRunInBackground) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Run in background")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.caiTextPrimary)
+                        Text("Dismiss Cai immediately and run the command in the background. Result surfaces as a toast. Recommended for slow commands and `|llm` filters.")
+                            .font(.system(size: 10))
+                            .foregroundColor(.caiTextSecondary.opacity(0.6))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+
             // Pin to top — applies to all types.
             Toggle(isOn: $formPinned) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -470,6 +505,38 @@ struct ShortcutsManagementView: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.caiDivider.opacity(0.3), lineWidth: 0.5)
         )
+        // Auto-enable "Run in background" on transition INTO `|llm`. Two trigger
+        // points are required because the user can author in either order:
+        //   (a) set type to .shell, then type/paste a `|llm` template
+        //   (b) type/paste a `|llm` template (with type still .prompt, the
+        //       default), then switch type to .shell
+        //
+        // We track the previous-known `|llm` state explicitly via
+        // `lastFormValueHadLLM` rather than trusting `onChange`'s `oldValue` —
+        // because `oldValue` is "" on the FIRST onChange after editor open
+        // (when populating an existing shortcut), which would falsely look like
+        // a transition and override the user's persisted choice.
+        .onChange(of: formValue) { _, newValue in
+            // Fires per keystroke. Early-return cheaply when there's no
+            // |llm-state transition — most keystrokes don't cross the boundary.
+            let hasLLM = newValue.contains("|llm")
+            guard hasLLM != lastFormValueHadLLM else { return }
+            lastFormValueHadLLM = hasLLM
+            // Only auto-enable the toggle on a NO-LLM → HAS-LLM transition,
+            // and only for shell-type shortcuts. Removing |llm doesn't auto-
+            // disable the toggle (one-way heuristic).
+            guard formType == .shell, hasLLM, !formRunInBackground else { return }
+            formRunInBackground = true
+        }
+        .onChange(of: formType) { _, newType in
+            // Switching type to .shell while the value already contains |llm:
+            // honor the same auto-enable heuristic so order-of-authoring doesn't
+            // matter. Skip if user already toggled it on.
+            guard newType == .shell else { return }
+            if lastFormValueHadLLM && !formRunInBackground {
+                formRunInBackground = true
+            }
+        }
         .padding(.horizontal, 8)
     }
 
@@ -487,6 +554,8 @@ struct ShortcutsManagementView: View {
 
         // Only the prompt type supports auto-replace; other types silently drop it.
         let autoReplace = formType == .prompt && formAutoReplace
+        // Only the shell type supports background execution; other types drop it.
+        let runInBackground = formType == .shell && formRunInBackground
 
         if isNew {
             let shortcut = CaiShortcut(
@@ -494,7 +563,8 @@ struct ShortcutsManagementView: View {
                 type: formType,
                 value: trimmedValue,
                 autoReplaceSelection: autoReplace,
-                pinned: formPinned
+                pinned: formPinned,
+                runInBackground: runInBackground
             )
             withAnimation(.easeInOut(duration: 0.15)) {
                 // Build the new ordered array in a local, then assign once so
@@ -515,6 +585,7 @@ struct ShortcutsManagementView: View {
                 copy[index].value = trimmedValue
                 copy[index].autoReplaceSelection = autoReplace
                 copy[index].pinned = formPinned
+                copy[index].runInBackground = runInBackground
                 settings.shortcuts = copy.filter(\.pinned) + copy.filter { !$0.pinned }
             }
         }
@@ -533,6 +604,8 @@ struct ShortcutsManagementView: View {
         formValue = ""
         formAutoReplace = false
         formPinned = false
+        formRunInBackground = false
+        lastFormValueHadLLM = false
     }
 
     // MARK: - Share as Extension
