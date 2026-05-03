@@ -369,13 +369,102 @@ final class TemplateEngineTests: XCTestCase {
     }
 
     func testExplicitFilterOverridesContextDefault() async throws {
-        // Even in shell context, |raw bypasses the default
+        // Even in shell context, |raw bypasses the default safety net
         let r = try await TemplateEngine.render(
             "echo {{result|raw}}",
             vars: ["result": "hi"],
             context: .shell
         )
         XCTAssertEqual(r, "echo hi")
+    }
+
+    // MARK: - Safety filter auto-append (the "filters extend the safety net" rule)
+    //
+    // When a user writes an explicit filter chain in .shell/.url/.json contexts,
+    // the engine appends the context's safety filter at the end unless the user
+    // (a) already wrote it, or (b) opted out with |raw. This prevents a footgun
+    // where chained filters (especially |llm) silently bypass shell escaping —
+    // surfaced in real use as `zsh: no matches found:` when LLM output contained
+    // glob characters.
+
+    func testShellAutoAppendsShellAfterChainEndingInOtherFilter() async throws {
+        // url_encode → "hello%20world", auto-append |shell → "'hello%20world'"
+        let r = try await TemplateEngine.render(
+            "echo {{result|url_encode}}",
+            vars: ["result": "hello world"],
+            context: .shell
+        )
+        XCTAssertEqual(r, "echo 'hello%20world'")
+    }
+
+    func testShellRespectsExplicitRawAtEndOfChain() async throws {
+        // |raw at end opts out of the safety net entirely
+        let r = try await TemplateEngine.render(
+            "echo {{result|url_encode|raw}}",
+            vars: ["result": "hello world"],
+            context: .shell
+        )
+        XCTAssertEqual(r, "echo hello%20world")
+    }
+
+    func testShellDoesNotDoubleAppendWhenChainAlreadyEndsInShell() async throws {
+        // Chain already ends in |shell — engine must NOT append a second |shell
+        let r = try await TemplateEngine.render(
+            "echo {{result|raw|shell}}",
+            vars: ["result": "hi there"],
+            context: .shell
+        )
+        XCTAssertEqual(r, "echo 'hi there'")
+    }
+
+    func testJsonRawOptsOutEvenInJsonContext() async throws {
+        // |raw at end is the universal opt-out, even in .json context
+        let r = try await TemplateEngine.render(
+            "{\"text\": \"{{result|raw}}\"}",
+            vars: ["result": "say \"hi\""],
+            context: .json
+        )
+        // Produces invalid JSON, but that's the user's explicit choice with |raw.
+        XCTAssertEqual(r, "{\"text\": \"say \"hi\"\"}")
+    }
+
+    func testJsonAutoAppendsJsonAfterUrlEncodeChain() async throws {
+        // url_encode is not the safety filter for .json — engine auto-appends |json
+        let r = try await TemplateEngine.render(
+            "{\"text\": \"{{result|url_encode}}\"}",
+            vars: ["result": "a b"],
+            context: .json
+        )
+        // url_encode → "a%20b", then |json (no special chars) → "a%20b"
+        XCTAssertEqual(r, "{\"text\": \"a%20b\"}")
+    }
+
+    func testUrlRespectsRawOptOut() async throws {
+        let r = try await TemplateEngine.render(
+            "https://x.com/?q={{result|raw}}",
+            vars: ["result": "hello world"],
+            context: .url
+        )
+        XCTAssertEqual(r, "https://x.com/?q=hello world")
+    }
+
+    func testUrlDoesNotDoubleAppendWhenChainAlreadyEndsInUrlEncode() async throws {
+        let r = try await TemplateEngine.render(
+            "https://x.com/?q={{result|raw|url_encode}}",
+            vars: ["result": "hello world"],
+            context: .url
+        )
+        XCTAssertEqual(r, "https://x.com/?q=hello%20world")
+    }
+
+    func testRawContextNeverAutoAppends() async throws {
+        // .raw has no safety filter; explicit chains run exactly as written
+        let r = try await TemplateEngine.render(
+            "{{result|url_encode}}",
+            vars: ["result": "hello world"],
+            context: .raw
+        )
+        XCTAssertEqual(r, "hello%20world")
     }
 
     // MARK: - Unification / Idempotence

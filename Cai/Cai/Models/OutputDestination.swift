@@ -206,7 +206,10 @@ enum OutputDestinationError: LocalizedError {
         case .notConfigured(let field):
             return "Missing setup: \(field)"
         case .timeout:
-            return "Operation timed out"
+            // Avoid the substring "timed out" so ResultView's provider-error
+            // heuristic doesn't show the misleading "Check Settings → Model
+            // Provider" hint for a shell-side timeout.
+            return "Shell command exceeded 60s and was stopped"
         case .pasteBackFailed:
             return "Could not paste the response. Check Accessibility permission."
         }

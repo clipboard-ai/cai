@@ -1295,21 +1295,32 @@ struct MCPFormView: View {
         }
 
         // Dynamic arguments from field values
-        for (toolParam, template) in actionConfig.submitMapping {
-            let resolved = resolveTemplate(template)
-            // Skip empty optional values
-            guard !resolved.isEmpty else { continue }
+        do {
+            for (toolParam, template) in actionConfig.submitMapping {
+                let resolved = try await resolveTemplate(template)
+                // Skip empty optional values
+                guard !resolved.isEmpty else { continue }
 
-            if isArrayField(template) {
-                // Multiselect fields → always send as array (even single selection)
-                let items = resolved.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                arguments[toolParam] = items
-            } else if let intVal = Int(resolved), isNumericField(template) {
-                // Numeric fields (e.g., priority 0-4) → send as Int, not String
-                arguments[toolParam] = intVal
-            } else {
-                arguments[toolParam] = resolved
+                if isArrayField(template) {
+                    // Multiselect fields → always send as array (even single selection)
+                    let items = resolved.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                    arguments[toolParam] = items
+                } else if let intVal = Int(resolved), isNumericField(template) {
+                    // Numeric fields (e.g., priority 0-4) → send as Int, not String
+                    arguments[toolParam] = intVal
+                } else {
+                    arguments[toolParam] = resolved
+                }
             }
+        } catch {
+            // Template resolution failed (parse error, |llm failure, etc.) — surface
+            // to the user via the inline error message and abort the submission.
+            await MainActor.run {
+                isSubmitting = false
+                hasSubmitted = false
+                errorMessage = error.localizedDescription
+            }
+            return
         }
 
         // Comment flow — if user chose "Add comment" on a triage result
@@ -1323,7 +1334,7 @@ struct MCPFormView: View {
                     if template == "{{issue_id}}" {
                         commentArgs[param] = issue.id
                     } else {
-                        commentArgs[param] = resolveTemplate(template)
+                        commentArgs[param] = try await resolveTemplate(template)
                     }
                 }
                 // Add the body — use the generated body field or clipboard text
@@ -1405,49 +1416,51 @@ struct MCPFormView: View {
         }
     }
 
-    /// Resolves a template like "{{title}}", "{{labels}}", or "{{repo:owner}}" from field values.
-    /// Supports `:owner` / `:name` suffixes to split slash-separated values (e.g., "owner/repo").
-    private func resolveTemplate(_ template: String) -> String {
-        var result = template
-        let pattern = "\\{\\{([^}]+)\\}\\}"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return template }
-        let matches = regex.matches(in: template, range: NSRange(template.startIndex..., in: template))
+    /// Resolves a template like "{{title}}", "{{labels}}", or "{{repo:owner}}" via
+    /// the shared `TemplateEngine`.
+    ///
+    /// **MCP-specific behavior** is handled by pre-flattening field values into the
+    /// engine's `vars` map (per the locked design — engine surface stays minimal):
+    ///
+    /// 1. Plain field values map directly: `fieldValues["title"]` → `vars["title"]`.
+    /// 2. Multiselect arrays are sorted + comma-joined: `["bug","p1"]` → `"bug,p1"`.
+    ///    Caller (`isArrayField`-branch) re-splits when the tool expects an array.
+    /// 3. `{{field:owner}}` / `{{field:name}}` accessors are pre-computed: each
+    ///    field with a "/" gets `field:owner` and `field:name` keys; fields
+    ///    without a "/" get both keys equal to the raw value (matches v1 fallback).
+    ///
+    /// Uses `Context.raw` because the MCP transport (`MCPTransportClient`) does
+    /// its own JSON-RPC encoding downstream — no automatic escaping needed here.
+    private func resolveTemplate(_ template: String) async throws -> String {
+        var vars: [String: String] = [:]
 
-        for match in matches.reversed() {
-            guard let range = Range(match.range(at: 1), in: template) else { continue }
-            let key = String(template[range])
-            let replacement: String
-
-            // Handle {{field:owner}} and {{field:name}} for "owner/repo" splitting
-            if key.contains(":") {
-                let parts = key.split(separator: ":", maxSplits: 1)
-                let fieldId = String(parts[0])
-                let accessor = String(parts[1])
-                let rawValue = fieldValues[fieldId] ?? ""
-                let slashParts = rawValue.split(separator: "/", maxSplits: 1)
-
-                switch accessor {
-                case "owner":
-                    replacement = slashParts.count >= 1 ? String(slashParts[0]) : rawValue
-                case "name":
-                    replacement = slashParts.count >= 2 ? String(slashParts[1]) : rawValue
-                default:
-                    replacement = rawValue
-                }
-            }
-            // Check multiselect
-            else if let selected = multiSelectValues[key], !selected.isEmpty {
-                replacement = selected.sorted().joined(separator: ",")
-            } else {
-                replacement = fieldValues[key] ?? ""
-            }
-
-            if let fullRange = Range(match.range, in: result) {
-                result.replaceSubrange(fullRange, with: replacement)
-            }
+        // 1. Plain field values
+        for (key, value) in fieldValues {
+            vars[key] = value
         }
 
-        return result
+        // 2. Multiselect: sorted, comma-joined (matches v1; caller re-splits via
+        //    `isArrayField` when the tool parameter is an array).
+        for (key, selected) in multiSelectValues where !selected.isEmpty {
+            vars[key] = selected.sorted().joined(separator: ",")
+        }
+
+        // 3. `:owner` / `:name` accessors pre-flattened. The engine treats `:`
+        //    inside a variable name as a literal character (it only has meaning
+        //    after a `|` filter pipe), so `vars["repo:owner"]` is a valid lookup
+        //    key. v1 fallback: when there's no "/" in the value, both accessors
+        //    return the raw value.
+        for (fieldId, rawValue) in fieldValues {
+            let slashParts = rawValue.split(separator: "/", maxSplits: 1)
+            vars["\(fieldId):owner"] = slashParts.count >= 1 ? String(slashParts[0]) : rawValue
+            vars["\(fieldId):name"] = slashParts.count >= 2 ? String(slashParts[1]) : rawValue
+        }
+
+        return try await TemplateEngine.render(
+            template,
+            vars: vars,
+            context: .raw
+        )
     }
 
     /// Checks MCP response for error indicators (GitHub, Linear, generic APIs).

@@ -91,7 +91,19 @@ struct TemplateEngine {
                 // templates between contexts (e.g. {{title}} in a shell shortcut) is
                 // common and shouldn't kill the action.
                 let initial = vars[varName] ?? ""
-                let chain = filters.isEmpty ? defaultChain(for: context) : filters
+                var chain = filters.isEmpty ? defaultChain(for: context) : filters
+                // Safe-by-default: when the user wrote an explicit filter chain, ensure
+                // it ends in the context's safety filter (so e.g. `|llm:"..."` in a
+                // shell template gets `|shell` appended automatically). Skip if the
+                // user explicitly opted out with `|raw` or already used the matching
+                // filter. Without this, every chained-filter user has to remember to
+                // append `|shell` themselves — confirmed footgun in real use.
+                if !filters.isEmpty,
+                   let safety = safetyFilter(for: context),
+                   let lastName = chain.last?.name,
+                   lastName != "raw" && lastName != safety {
+                    chain.append(FilterCall(name: safety, args: []))
+                }
                 var value = initial
                 for call in chain {
                     guard let filter = filterRegistry[call.name] else {
@@ -111,15 +123,26 @@ struct TemplateEngine {
 
     // MARK: - Default Filter per Context
 
-    /// Returns the default filter chain for a context. Applied when a placeholder
-    /// has no explicit `|filter` segments — preserves v1 behavior at each surface.
-    private static func defaultChain(for context: Context) -> [FilterCall] {
+    /// The context's "safety filter" — the escape that keeps output safe for that
+    /// surface. Used in two places: (a) as the chain when no filters are written,
+    /// and (b) auto-appended at the end of any explicit chain unless the user
+    /// opted out with `|raw` or already used the matching filter. `nil` for `.raw`.
+    private static func safetyFilter(for context: Context) -> String? {
         switch context {
-        case .shell: return [FilterCall(name: "shell", args: [])]
-        case .url:   return [FilterCall(name: "url_encode", args: [])]
-        case .json:  return [FilterCall(name: "json", args: [])]
-        case .raw:   return []  // raw substitution; no filter applied
+        case .shell: return "shell"
+        case .url:   return "url_encode"
+        case .json:  return "json"
+        case .raw:   return nil
         }
+    }
+
+    /// Returns the default filter chain for a context. Applied when a placeholder
+    /// has no explicit `|filter` segments. Wraps `safetyFilter(for:)` in an array.
+    private static func defaultChain(for context: Context) -> [FilterCall] {
+        if let safety = safetyFilter(for: context) {
+            return [FilterCall(name: safety, args: [])]
+        }
+        return []
     }
 
     // MARK: - Filter Registry

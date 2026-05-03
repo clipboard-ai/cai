@@ -1203,7 +1203,7 @@ struct ActionListWindow: View {
             conversationHistory = buildInitialMessages(systemPrompt: systemPrompt, userPrompt: clipboardText)
             isFollowUpEnabled = true
             showResultView(title: action.title) {
-                return try await Self.runShellCommand(command, text: clipboardText)
+                return try await Self.runShellCommand(command, text: clipboardText, sourceBundleId: self.sourceBundleId)
             }
 
         case .copyText:
@@ -1730,9 +1730,20 @@ struct ActionListWindow: View {
 
     /// Runs a shell command template with clipboard text substituted for {{result}}.
     /// Text is also piped as stdin. Returns stdout on success, throws on failure/timeout.
-    private static func runShellCommand(_ template: String, text: String) async throws -> String {
-        let escaped = text.replacingOccurrences(of: "'", with: "'\\''")
-        let resolved = template.replacingOccurrences(of: "{{result}}", with: escaped)
+    ///
+    /// Templates are resolved through `TemplateEngine` with `Context.shell`, which
+    /// applies `|shell` (single-quote wrap + escape) by default. After unification
+    /// in this release, shortcut shell and shell destinations share the same engine
+    /// path and produce identical output for equivalent templates. `sourceBundleId`
+    /// is forwarded so any `|llm` filters in the template inherit the source app's
+    /// Context Snippet.
+    private static func runShellCommand(_ template: String, text: String, sourceBundleId: String?) async throws -> String {
+        let resolved = try await TemplateEngine.render(
+            template,
+            vars: ["result": text],
+            context: .shell,
+            sourceBundleId: sourceBundleId
+        )
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -1752,21 +1763,25 @@ struct ActionListWindow: View {
 
         try process.run()
 
-        // Timeout after 15 seconds — race the process exit against a sleep.
-        // Using Task.sleep instead of DispatchSemaphore.wait keeps us async-safe
-        // (Swift 6 requires this; DispatchSemaphore.wait is unavailable from async contexts).
+        // Timeout after 60 seconds — comfortable buffer for `|llm` filter cold
+        // starts (~5-15s) plus the shell command itself (e.g. `say` reading a
+        // few sentences). Configurable per-action timeout is Phase 3 work.
         let exitTask = Task.detached {
             process.waitUntilExit()
         }
         let timeoutTask = Task.detached {
-            try await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+            try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
             process.terminate()
         }
         await exitTask.value
         timeoutTask.cancel()
 
         if process.terminationReason == .uncaughtSignal {
-            throw NSError(domain: "Cai", code: 1, userInfo: [NSLocalizedDescriptionKey: "Command timed out after 15 seconds"])
+            // Phrasing avoids "timed out" so ResultView's provider-error heuristic
+            // doesn't show the misleading "Check Settings → Model Provider" hint.
+            throw NSError(domain: "Cai", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Shell command exceeded 60s and was stopped"
+            ])
         }
 
         let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

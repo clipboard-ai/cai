@@ -21,13 +21,13 @@ actor OutputDestinationService {
 
         switch destination.type {
         case .applescript(let template):
-            try await executeAppleScript(template, text: text, fields: destination.setupFields)
+            try await executeAppleScript(template, text: text, fields: destination.setupFields, sourceBundleId: sourceBundleId)
         case .webhook(let config):
-            try await executeWebhook(config, text: text, fields: destination.setupFields)
+            try await executeWebhook(config, text: text, fields: destination.setupFields, sourceBundleId: sourceBundleId)
         case .deeplink(let template):
-            try await executeDeeplink(template, text: text, fields: destination.setupFields)
+            try await executeDeeplink(template, text: text, fields: destination.setupFields, sourceBundleId: sourceBundleId)
         case .shell(let command):
-            try await executeShell(command, text: text, fields: destination.setupFields)
+            try await executeShell(command, text: text, fields: destination.setupFields, sourceBundleId: sourceBundleId)
         case .pasteBack:
             try await executePasteBack(text: text, sourceBundleId: sourceBundleId)
         }
@@ -56,16 +56,21 @@ actor OutputDestinationService {
 
     // MARK: - AppleScript
 
-    private func executeAppleScript(_ template: String, text: String, fields: [SetupField]) async throws {
+    private func executeAppleScript(_ template: String, text: String, fields: [SetupField], sourceBundleId: String?) async throws {
         // If the template targets Notes.app (body property), convert to simple HTML
         // so line breaks and basic formatting survive.
+        // AppleScript escaping is handled at the call site (engine has no
+        // dedicated AppleScript context — see SHELL-TODOS.md "Updates 2026-05-03").
         let processedText: String
         if template.contains("application \"Notes\"") && template.contains("body:") {
             processedText = escapeForAppleScript(plainTextToHTML(text))
         } else {
             processedText = escapeForAppleScript(text)
         }
-        let resolved = resolveTemplate(template, text: processedText, fields: fields)
+        let resolved = try await render(
+            template, text: processedText, fields: fields,
+            context: .raw, sourceBundleId: sourceBundleId
+        )
 
         let targetApp = Self.extractTargetApp(from: template)
 
@@ -114,14 +119,24 @@ actor OutputDestinationService {
 
     // MARK: - Webhook
 
-    private func executeWebhook(_ config: WebhookConfig, text: String, fields: [SetupField]) async throws {
+    private func executeWebhook(_ config: WebhookConfig, text: String, fields: [SetupField], sourceBundleId: String?) async throws {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedURL = resolveTemplate(config.url, text: trimmedText, fields: fields)
+        // URL substitutes setup-field placeholders ({{slack_webhook_url}} etc.) raw —
+        // the URL is constructed verbatim from user-supplied components.
+        let resolvedURL = try await render(
+            config.url, text: trimmedText, fields: fields,
+            context: .raw, sourceBundleId: sourceBundleId
+        )
         // Collapse body template to single line (TextEditor may introduce line breaks)
         let compactBody = config.bodyTemplate
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: "")
-        let resolvedBody = resolveTemplate(compactBody, text: escapeForJSON(trimmedText), fields: fields)
+        // .json context applies |json by default to bare {{result}} so the body is
+        // valid JSON for any clipboard content (quotes, newlines, unicode all escaped).
+        let resolvedBody = try await render(
+            compactBody, text: trimmedText, fields: fields,
+            context: .json, sourceBundleId: sourceBundleId
+        )
 
         #if DEBUG
         // Log host + length only — resolved URL can carry query-param secrets,
@@ -140,7 +155,12 @@ actor OutputDestinationService {
         request.timeoutInterval = 15
 
         for (key, value) in config.headers {
-            let resolvedValue = resolveTemplate(value, text: trimmedText, fields: fields)
+            // Headers are raw — no automatic escaping. Setup fields like {{api_key}}
+            // are substituted verbatim (matches v1 behavior).
+            let resolvedValue = try await render(
+                value, text: trimmedText, fields: fields,
+                context: .raw, sourceBundleId: sourceBundleId
+            )
             request.setValue(resolvedValue, forHTTPHeaderField: key)
         }
 
@@ -162,36 +182,23 @@ actor OutputDestinationService {
         }
     }
 
-    /// Escapes text for safe embedding in shell commands via single-quote wrapping.
-    /// Prevents injection when clipboard text is substituted into {{result}}.
-    private func escapeForShell(_ text: String) -> String {
-        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    /// Escapes text for safe embedding inside a JSON string value.
-    /// Uses JSONEncoder so every special character (newlines, quotes, unicode,
-    /// control chars) is handled correctly — works even when the JSON string
-    /// is nested inside another string (e.g. GraphQL query inside JSON body).
-    private func escapeForJSON(_ text: String) -> String {
-        guard let data = try? JSONEncoder().encode(text),
-              let jsonString = String(data: data, encoding: .utf8) else {
-            // Fallback: manual escaping if encoder somehow fails
-            return text
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-                .replacingOccurrences(of: "\n", with: "\\n")
-                .replacingOccurrences(of: "\r", with: "\\r")
-                .replacingOccurrences(of: "\t", with: "\\t")
-        }
-        // JSONEncoder wraps in quotes: "hello" → strip the outer quotes
-        return String(jsonString.dropFirst().dropLast())
-    }
+    // Note: `escapeForShell` and `escapeForJSON` (formerly inline here) were removed
+    // when this service was wired through `TemplateEngine`. The engine's `Context.shell`
+    // and `Context.json` defaults apply the canonical `|shell` and `|json` filters,
+    // which encapsulate the same escaping logic in one place. See SHELL-TODOS.md.
 
     // MARK: - Deeplink
 
-    private func executeDeeplink(_ template: String, text: String, fields: [SetupField]) async throws {
-        let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
-        let resolved = resolveTemplate(template, text: encoded, fields: fields)
+    private func executeDeeplink(_ template: String, text: String, fields: [SetupField], sourceBundleId: String?) async throws {
+        // .url context applies |url_encode by default to bare {{result}} using the
+        // RFC 3986 unreserved character set — stricter than the v1 .urlQueryAllowed
+        // pre-escape, so `&` and `=` in clipboard text now get encoded too. This is
+        // a strict safety improvement: clipboard with `&` no longer breaks the
+        // surrounding URL into separate query parameters.
+        let resolved = try await render(
+            template, text: text, fields: fields,
+            context: .url, sourceBundleId: sourceBundleId
+        )
 
         guard let url = URL(string: resolved) else {
             throw OutputDestinationError.invalidURL
@@ -204,8 +211,13 @@ actor OutputDestinationService {
 
     // MARK: - Shell Command
 
-    private func executeShell(_ command: String, text: String, fields: [SetupField]) async throws {
-        let resolved = resolveTemplate(command, text: escapeForShell(text), fields: fields)
+    private func executeShell(_ command: String, text: String, fields: [SetupField], sourceBundleId: String?) async throws {
+        // .shell context applies |shell by default to bare {{result}} (single-quote
+        // wrap + escape). Same output as the v1 escapeForShell pre-escape produced.
+        let resolved = try await render(
+            command, text: text, fields: fields,
+            context: .shell, sourceBundleId: sourceBundleId
+        )
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -224,14 +236,14 @@ actor OutputDestinationService {
 
         try process.run()
 
-        // Timeout after 15 seconds — race process exit against a sleep.
-        // Using Task instead of DispatchSemaphore.wait keeps us async-safe
-        // (Swift 6 requires this; DispatchSemaphore.wait is unavailable from async contexts).
+        // Timeout after 60 seconds — comfortable buffer for `|llm` filter cold
+        // starts (~5-15s) plus the shell command itself (e.g. `say` reading a
+        // few sentences). Configurable per-action timeout is Phase 3 work.
         let exitTask = Task.detached {
             process.waitUntilExit()
         }
         let timeoutTask = Task.detached {
-            try await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+            try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
             process.terminate()
         }
         await exitTask.value
@@ -294,12 +306,29 @@ actor OutputDestinationService {
 
     // MARK: - Template Resolution
 
-    /// Replaces {{result}} and {{field_key}} placeholders in a template string.
-    private func resolveTemplate(_ template: String, text: String, fields: [SetupField]) -> String {
-        var result = template.replacingOccurrences(of: "{{result}}", with: text)
+    /// Renders a template via the shared `TemplateEngine`, building the variable
+    /// map from clipboard text + the destination's setup fields. The `context`
+    /// controls which default filter applies to bare `{{result}}` (e.g. `.shell`
+    /// adds the `|shell` wrap+escape; `.json` adds JSON escaping; `.url` adds
+    /// percent-encoding; `.raw` does no automatic escaping). `sourceBundleId`
+    /// is forwarded so any `|llm` filters in the template inherit the per-app
+    /// Context Snippet, matching the UX of regular Prompt actions.
+    private func render(
+        _ template: String,
+        text: String,
+        fields: [SetupField],
+        context: TemplateEngine.Context,
+        sourceBundleId: String?
+    ) async throws -> String {
+        var vars: [String: String] = ["result": text]
         for field in fields {
-            result = result.replacingOccurrences(of: "{{\(field.key)}}", with: field.value)
+            vars[field.key] = field.value
         }
-        return result
+        return try await TemplateEngine.render(
+            template,
+            vars: vars,
+            context: context,
+            sourceBundleId: sourceBundleId
+        )
     }
 }
