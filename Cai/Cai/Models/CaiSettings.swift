@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import HotKey
+import os.log
 import ServiceManagement
 #if canImport(FoundationModels)
 import FoundationModels
@@ -37,6 +38,7 @@ class CaiSettings: ObservableObject {
         static let anthropicModelName = "cai_anthropicModelName"
         static let openRouterModelName = "cai_openRouterModelName"
         static let migratedPasteBackDefaultsV3 = "cai_migratedPasteBackDefaultsV3"
+        static let migratedShellTemplatesV2 = "cai_migratedShellTemplatesV2"
         // apiKey moved to Keychain — see KeychainHelper
     }
 
@@ -433,12 +435,48 @@ class CaiSettings: ObservableObject {
         let mapsRaw = defaults.string(forKey: Keys.mapsProvider) ?? MapsProvider.apple.rawValue
         self.mapsProvider = MapsProvider(rawValue: mapsRaw) ?? .apple
 
+        // Load shortcuts into a local var, run the migration on it, then assign
+        // to `self.shortcuts` once. Swift's definite-init requires all stored
+        // properties to be initialized before any can be read via `self`, so
+        // the migration must operate on the local before assigning.
+        var loadedShortcuts: [CaiShortcut]
         if let data = defaults.data(forKey: Keys.shortcuts),
            let decoded = try? JSONDecoder().decode([CaiShortcut].self, from: data) {
-            self.shortcuts = decoded
+            loadedShortcuts = decoded
         } else {
-            self.shortcuts = []
+            loadedShortcuts = []
         }
+
+        // Narrow shell-template migration: rewrite v1 `'{{result}}'` patterns
+        // to v2 `{{result|shell}}` syntax. Single mechanical rewrite, idempotent.
+        // Runs once per user behind a one-shot flag. Every rewrite logged so
+        // users can audit via Console.app (`subsystem == com.soyasis.cai`).
+        // See `_docs/planning/active/SHELL-TODOS.md` "Updates 2026-05-03" for spec.
+        if !defaults.bool(forKey: Keys.migratedShellTemplatesV2) {
+            let migrationLog = Logger(subsystem: "com.soyasis.cai", category: "migration")
+            var rewriteCount = 0
+            for i in loadedShortcuts.indices where loadedShortcuts[i].type == .shell {
+                let original = loadedShortcuts[i].value
+                let rewritten = TemplateEngine.migrateShellTemplate(original)
+                if rewritten != original {
+                    loadedShortcuts[i].value = rewritten
+                    rewriteCount += 1
+                    migrationLog.notice(
+                        "Shell template migrated for shortcut \(loadedShortcuts[i].name, privacy: .public): \(original, privacy: .public) -> \(rewritten, privacy: .public)"
+                    )
+                }
+            }
+            if rewriteCount > 0 {
+                // Persist by hand — didSet doesn't fire during init.
+                if let data = try? JSONEncoder().encode(loadedShortcuts) {
+                    defaults.set(data, forKey: Keys.shortcuts)
+                }
+                migrationLog.notice("Shell-template migration complete: \(rewriteCount) shortcut(s) rewritten")
+            }
+            defaults.set(true, forKey: Keys.migratedShellTemplatesV2)
+        }
+
+        self.shortcuts = loadedShortcuts
 
         if let data = defaults.data(forKey: Keys.outputDestinations),
            let decoded = try? JSONDecoder().decode([OutputDestination].self, from: data) {

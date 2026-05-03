@@ -133,6 +133,32 @@ struct TemplateEngine {
         "url_encode": UrlEncodeFilter(),
         "llm":        LLMFilter(),
     ]
+
+    // MARK: - v1 → v2 Migration (shortcut shell templates only)
+
+    /// Rewrites the v1 single-/double-quote-wrapped pattern in a shortcut shell
+    /// template to v2 filter syntax.
+    ///
+    /// **Single mechanical pattern** (the only safely-migratable case):
+    /// - `'{{result}}'` → `{{result|shell}}`
+    /// - `"{{result}}"` → `{{result|shell}}`
+    ///
+    /// All other content passes through unchanged. Bare `{{result}}` is *not*
+    /// rewritten — it's behavior-preserving under `Context.shell`'s default
+    /// `|shell` filter at render time.
+    ///
+    /// **Idempotent.** After rewrite the pattern is gone, so running on already-
+    /// migrated text is a no-op. Templates already authored in v2 syntax (e.g.
+    /// `{{result|raw}}`) are also unaffected — the literal `'{{result}}'`
+    /// substring isn't present.
+    ///
+    /// Called once per user from `CaiSettings.init()` behind a one-shot flag.
+    /// See `_docs/planning/active/SHELL-TODOS.md` "Updates 2026-05-03" for spec.
+    static func migrateShellTemplate(_ template: String) -> String {
+        return template
+            .replacingOccurrences(of: "'{{result}}'", with: "{{result|shell}}")
+            .replacingOccurrences(of: "\"{{result}}\"", with: "{{result|shell}}")
+    }
 }
 
 // MARK: - Parsing

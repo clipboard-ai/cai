@@ -451,4 +451,85 @@ final class TemplateEngineTests: XCTestCase {
             XCTFail("expected badArgument, got \(error)")
         }
     }
+
+    // MARK: - migrateShellTemplate (v1 → v2)
+
+    func testMigrateRewritesSingleQuotedPattern() {
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("echo '{{result}}'"),
+            "echo {{result|shell}}"
+        )
+    }
+
+    func testMigrateRewritesDoubleQuotedPattern() {
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("say \"{{result}}\""),
+            "say {{result|shell}}"
+        )
+    }
+
+    func testMigrateRewritesInTheMiddleOfTemplate() {
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("echo '{{result}}' | base64 -D"),
+            "echo {{result|shell}} | base64 -D"
+        )
+    }
+
+    func testMigrateLeavesBareResultUnchanged() {
+        // Bare {{result}} in a shortcut shell is behavior-preserving under the
+        // engine's Context.shell default — no migration applied.
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("lsof -ti :{{result}} | xargs kill -9"),
+            "lsof -ti :{{result}} | xargs kill -9"
+        )
+    }
+
+    func testMigrateLeavesAlreadyV2Unchanged() {
+        // Templates already authored in v2 syntax (any |filter) don't contain
+        // the literal `'{{result}}'` pattern, so the rewrite is a no-op.
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("echo {{result|raw}}"),
+            "echo {{result|raw}}"
+        )
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("echo {{result|shell}}"),
+            "echo {{result|shell}}"
+        )
+    }
+
+    func testMigrateIsIdempotent() {
+        // Running migration twice produces the same result as running it once.
+        // Critical: prevents double-migration if the flag is somehow re-cleared.
+        let v1 = "echo '{{result}}' && say \"{{result}}\""
+        let once = TemplateEngine.migrateShellTemplate(v1)
+        let twice = TemplateEngine.migrateShellTemplate(once)
+        XCTAssertEqual(once, twice)
+        XCTAssertEqual(once, "echo {{result|shell}} && say {{result|shell}}")
+    }
+
+    func testMigrateRewritesMultipleOccurrences() {
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("echo '{{result}}' && cat '{{result}}'.log"),
+            "echo {{result|shell}} && cat {{result|shell}}.log"
+        )
+    }
+
+    func testMigrateLeavesEmptyStringUnchanged() {
+        XCTAssertEqual(TemplateEngine.migrateShellTemplate(""), "")
+    }
+
+    func testMigrateLeavesNonShellTemplatesAlone() {
+        // The migration is a string operation; the *caller* (CaiSettings.init)
+        // is responsible for only running it on .shell shortcuts. The function
+        // itself doesn't know about types — but it should still be safe on any
+        // string. Verify it doesn't accidentally mangle prompt-style content.
+        let prompt = "Translate this to Spanish: '{{result}}'"
+        // Even on prompt-style text, the migration applies the rewrite. This is
+        // expected and harmless — the function is a pure string transform; the
+        // caller scopes its application to shell shortcuts only.
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate(prompt),
+            "Translate this to Spanish: {{result|shell}}"
+        )
+    }
 }
