@@ -51,7 +51,10 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
             switch self {
             case .prompt: return "e.g. Rewrite as a professional email reply"
             case .url: return "e.g. https://www.reddit.com/search/?q=%s"
-            case .shell: return "e.g. echo '{{result}}' | base64 -D"
+            // Bare `{{result}}` is safe by default in shell templates — Cai
+            // escapes via the |shell filter automatically. No surrounding
+            // quotes needed.
+            case .shell: return "e.g. echo {{result}} | base64 -D"
             }
         }
     }

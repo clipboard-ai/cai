@@ -76,6 +76,20 @@ struct ShortcutsManagementView: View {
                 }
 
                 Spacer()
+
+                // Top-right add button — mirrors DestinationsManagementView so
+                // users don't have to scroll to the bottom of the list to add a
+                // new action. Hidden while a form is open to avoid two
+                // simultaneous Add/Edit forms.
+                if !isAddingNew && editingShortcutId == nil {
+                    Button(action: { beginAdding() }) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.caiPrimary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Add a new custom action")
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -86,6 +100,10 @@ struct ShortcutsManagementView: View {
             // Content — `List` (not `ScrollView { VStack }`) so `.onMove` can wire
             // up drag-to-reorder. `.listStyle(.plain)` + per-row clear background
             // strips List's default chrome so rows keep their card aesthetic.
+            // ScrollViewReader lets us auto-scroll the editing/adding form into
+            // view so the screen doesn't appear to "jump" when content below
+            // the fold expands. List supports scrollTo since macOS 11+.
+            ScrollViewReader { proxy in
             List {
                 if settings.shortcuts.isEmpty && !isAddingNew {
                     emptyState
@@ -109,6 +127,7 @@ struct ShortcutsManagementView: View {
 
                     if isAddingNew {
                         shortcutForm(isNew: true, shortcutId: nil)
+                            .id("addNewShortcut")  // ScrollViewReader anchor
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
@@ -117,17 +136,7 @@ struct ShortcutsManagementView: View {
 
                 // Add button (when not already adding)
                 if !isAddingNew && editingShortcutId == nil {
-                    Button(action: {
-                        formName = ""
-                        formType = .prompt
-                        formValue = ""
-                        formAutoReplace = false
-                        formPinned = false
-                        formRunInBackground = false
-                        lastFormValueHadLLM = false  // empty value, no |llm
-                        isAddingNew = true
-                        WindowController.passThrough = true
-                    }) {
+                    Button(action: { beginAdding() }) {
                         HStack(spacing: 6) {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 12, weight: .medium))
@@ -170,6 +179,23 @@ struct ShortcutsManagementView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            // Auto-scroll the form into view when entering edit / add mode so
+            // the screen doesn't appear to "jump" when the form expands below
+            // the fold. Animated to match the form's open transition (matches
+            // Apple HIG: animate layout changes; keep relevant content visible).
+            .onChange(of: editingShortcutId) { _, newId in
+                guard let id = newId else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(id, anchor: .top)
+                }
+            }
+            .onChange(of: isAddingNew) { _, isAdding in
+                guard isAdding else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo("addNewShortcut", anchor: .top)
+                }
+            }
+            }  // end ScrollViewReader
 
             Spacer(minLength: 0)
 
@@ -278,28 +304,8 @@ struct ShortcutsManagementView: View {
             }
             .buttonStyle(.plain)
 
-            // Edit button
-            Button(action: {
-                formName = shortcut.name
-                formType = shortcut.type
-                formValue = shortcut.value
-                formAutoReplace = shortcut.autoReplaceSelection
-                formPinned = shortcut.pinned
-                formRunInBackground = shortcut.runInBackground
-                // Seed the tracker with the loaded value's |llm state so the
-                // *first* onChange triggered by populating formValue doesn't
-                // mistakenly auto-flip the toggle on (which would override the
-                // user's persisted choice for `|llm`-foreground shortcuts).
-                lastFormValueHadLLM = shortcut.value.contains("|llm")
-                editingShortcutId = shortcut.id
-                WindowController.passThrough = true
-            }) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .padding(4)
-            }
-            .buttonStyle(.plain)
+            // (Edit pencil removed — clicking anywhere on the row enters edit
+            // mode, see the .onTapGesture below.)
 
             // Delete button
             Button(action: {
@@ -318,12 +324,60 @@ struct ShortcutsManagementView: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.clear)
+                .fill(isHovered ? Color.caiSurface.opacity(0.5) : Color.clear)
         )
         .contentShape(Rectangle())
+        // Clicking anywhere on the row that isn't an inner button (pin, share,
+        // delete) enters edit mode. SwiftUI routes taps to inner Buttons first,
+        // so this gesture only fires on the row's "empty" surface (name/value
+        // area, padding, spacer). Matches the macOS Settings convention.
+        .onTapGesture {
+            beginEditing(shortcut)
+        }
         .onHover { hovering in
             hoveredShortcutId = hovering ? shortcut.id : nil
         }
+    }
+
+    /// Populates the editor form for an existing shortcut. Extracted so both
+    /// the row click and any future invocations (keyboard shortcut, context
+    /// menu) can call into the same logic. The state mutation is wrapped in
+    /// `withAnimation` so the row→form expansion is smoothed; the
+    /// ScrollViewReader's `onChange(of: editingShortcutId)` handler then
+    /// scrolls the form into view alongside the animation.
+    private func beginEditing(_ shortcut: CaiShortcut) {
+        formName = shortcut.name
+        formType = shortcut.type
+        formValue = shortcut.value
+        formAutoReplace = shortcut.autoReplaceSelection
+        formPinned = shortcut.pinned
+        formRunInBackground = shortcut.runInBackground
+        // Seed the tracker with the loaded value's |llm state so the *first*
+        // onChange triggered by populating formValue doesn't mistakenly auto-
+        // flip the toggle on (which would override the user's persisted
+        // choice for `|llm`-foreground shortcuts).
+        lastFormValueHadLLM = shortcut.value.contains("|llm")
+        withAnimation(.easeInOut(duration: 0.2)) {
+            editingShortcutId = shortcut.id
+        }
+        WindowController.passThrough = true
+    }
+
+    /// Begins authoring a brand-new shortcut. Resets the form state and opens
+    /// the inline form. Used by both the top-right `+` button and the
+    /// bottom-of-list "Add Action" button so they stay in sync.
+    private func beginAdding() {
+        formName = ""
+        formType = .prompt
+        formValue = ""
+        formAutoReplace = false
+        formPinned = false
+        formRunInBackground = false
+        lastFormValueHadLLM = false  // empty value, no |llm
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isAddingNew = true
+        }
+        WindowController.passThrough = true
     }
 
     // MARK: - Shortcut Form (Add / Edit)
@@ -412,6 +466,11 @@ struct ShortcutsManagementView: View {
                     .background(Color.caiError.opacity(0.08))
                     .cornerRadius(6)
                 }
+
+                // Note: we used to show a hint here when the v1 wrapped pattern
+                // (`'{{result}}'`) was typed, but the auto-migration in
+                // saveForm() handles it silently and correctly — the hint just
+                // added cognitive load. Removed.
             }
 
             // Auto replace selection, prompt-type only
@@ -472,6 +531,11 @@ struct ShortcutsManagementView: View {
                     cancelForm()
                 }
                 .buttonStyle(.plain)
+                // ESC dismisses the form (in-place) instead of bubbling up to
+                // the window-level cancel that would close the whole shortcuts
+                // window. macOS-native: `.cancelAction` is the standard ESC
+                // role for a "cancel/dismiss this dialog" button.
+                .keyboardShortcut(.cancelAction)
                 .font(.system(size: 12))
                 .foregroundColor(.caiTextSecondary)
 
@@ -493,6 +557,8 @@ struct ShortcutsManagementView: View {
                         )
                 }
                 .buttonStyle(.plain)
+                // ⌘⏎ saves — pairs with ESC for cancel. Standard macOS form pattern.
+                .keyboardShortcut(.return, modifiers: .command)
                 .disabled(formName.isEmpty || formValue.isEmpty)
             }
         }
@@ -505,6 +571,15 @@ struct ShortcutsManagementView: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.caiDivider.opacity(0.3), lineWidth: 0.5)
         )
+        // ESC dismisses the form in-place (back to the shortcuts list, not
+        // out of the whole window). `.keyboardShortcut(.cancelAction)` on the
+        // Cancel button below is the idiomatic SwiftUI way, but in this app
+        // the shortcuts window has higher-priority cancel handling that can
+        // win the responder race; `.onExitCommand` on the form view itself
+        // catches ESC reliably while focus is anywhere inside the form.
+        .onExitCommand {
+            cancelForm()
+        }
         // Auto-enable "Run in background" on transition INTO `|llm`. Two trigger
         // points are required because the user can author in either order:
         //   (a) set type to .shell, then type/paste a `|llm` template
@@ -547,9 +622,17 @@ struct ShortcutsManagementView: View {
         // Normalize smart/curly quotes to straight quotes — macOS's smart-quote
         // autocorrect silently replaces typed quotes in text fields, and zsh
         // (Shell type) + URL schemes only understand straight quotes.
-        let trimmedValue = formValue
+        var trimmedValue = formValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .normalizingSmartQuotes()
+        // Auto-migrate the v1 wrapped pattern (`'{{result}}'` / `"{{result}}"`)
+        // → v2 (`{{result|shell}}`). The launch-time migration in
+        // CaiSettings.init() handles existing shortcuts, but new shortcuts
+        // authored after the one-shot flag is set need this per-save fallback.
+        // No-op on already-v2 templates.
+        if formType == .shell {
+            trimmedValue = TemplateEngine.migrateShellTemplate(trimmedValue)
+        }
         guard !trimmedName.isEmpty, !trimmedValue.isEmpty else { return }
 
         // Only the prompt type supports auto-replace; other types silently drop it.

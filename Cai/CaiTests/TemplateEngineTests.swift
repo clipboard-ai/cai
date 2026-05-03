@@ -607,6 +607,33 @@ final class TemplateEngineTests: XCTestCase {
         XCTAssertEqual(TemplateEngine.migrateShellTemplate(""), "")
     }
 
+    func testMigrateRewritesCurlySingleQuotePattern() {
+        // macOS smart-quote autocorrect substitutes 'word' (straight) with
+        // \u{2018}word\u{2019} (typographic). Legacy templates persisted before
+        // the save-time normalize-smart-quotes fix can have them; the
+        // launch-time migration must catch those too.
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("echo \u{2018}{{result}}\u{2019}"),
+            "echo {{result|shell}}"
+        )
+    }
+
+    func testMigrateRewritesCurlyDoubleQuotePattern() {
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("say \u{201C}{{result}}\u{201D}"),
+            "say {{result|shell}}"
+        )
+    }
+
+    func testMigrateRewritesMixedStraightAndCurlyQuotes() {
+        // Real-world legacy: user typed straight quotes in some places, smart
+        // quotes auto-converted in others within the same template.
+        XCTAssertEqual(
+            TemplateEngine.migrateShellTemplate("echo '{{result}}' && cat \u{2018}{{result}}\u{2019}.log"),
+            "echo {{result|shell}} && cat {{result|shell}}.log"
+        )
+    }
+
     func testMigrateLeavesNonShellTemplatesAlone() {
         // The migration is a string operation; the *caller* (CaiSettings.init)
         // is responsible for only running it on .shell shortcuts. The function

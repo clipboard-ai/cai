@@ -163,8 +163,16 @@ struct TemplateEngine {
     /// template to v2 filter syntax.
     ///
     /// **Single mechanical pattern** (the only safely-migratable case):
-    /// - `'{{result}}'` → `{{result|shell}}`
-    /// - `"{{result}}"` → `{{result|shell}}`
+    /// - `'{{result}}'` → `{{result|shell}}` (straight single quotes)
+    /// - `"{{result}}"` → `{{result|shell}}` (straight double quotes)
+    /// - `\u{2018}{{result}}\u{2019}` → `{{result|shell}}` (typographic single)
+    /// - `\u{201C}{{result}}\u{201D}` → `{{result|shell}}` (typographic double)
+    ///
+    /// Curly/typographic quotes are included because macOS's smart-quote
+    /// autocorrect silently substitutes them in NSTextView/TextField — legacy
+    /// templates persisted before the save-time `normalizingSmartQuotes()` fix
+    /// can have them on disk. Catching them here lets the launch-time
+    /// migration clean those up too.
     ///
     /// All other content passes through unchanged. Bare `{{result}}` is *not*
     /// rewritten — it's behavior-preserving under `Context.shell`'s default
@@ -172,15 +180,18 @@ struct TemplateEngine {
     ///
     /// **Idempotent.** After rewrite the pattern is gone, so running on already-
     /// migrated text is a no-op. Templates already authored in v2 syntax (e.g.
-    /// `{{result|raw}}`) are also unaffected — the literal `'{{result}}'`
-    /// substring isn't present.
+    /// `{{result|raw}}`) are also unaffected — none of the literal patterns
+    /// appear.
     ///
-    /// Called once per user from `CaiSettings.init()` behind a one-shot flag.
+    /// Called once per user from `CaiSettings.init()` behind a one-shot flag,
+    /// and per-save in the shortcut editor as a safety net for new shortcuts.
     /// See `_docs/planning/active/SHELL-TODOS.md` "Updates 2026-05-03" for spec.
     static func migrateShellTemplate(_ template: String) -> String {
         return template
             .replacingOccurrences(of: "'{{result}}'", with: "{{result|shell}}")
             .replacingOccurrences(of: "\"{{result}}\"", with: "{{result|shell}}")
+            .replacingOccurrences(of: "\u{2018}{{result}}\u{2019}", with: "{{result|shell}}")
+            .replacingOccurrences(of: "\u{201C}{{result}}\u{201D}", with: "{{result|shell}}")
     }
 }
 
