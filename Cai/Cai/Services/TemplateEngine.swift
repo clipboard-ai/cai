@@ -1,0 +1,479 @@
+import Foundation
+
+// MARK: - Template Engine
+
+/// Resolves Cai's template syntax (`{{var|filter|filter:"arg"}}`) into a final string.
+/// Used by every surface that substitutes user-authored templates: shell shortcuts,
+/// shell/webhook/deeplink/AppleScript destinations, and (with `Context.raw`) MCP form fields.
+///
+/// **Design:** pure function (no I/O, no state in the engine itself); filters can be
+/// async (e.g. `|llm` calls `LLMService`). Filter resolution is by name lookup, not
+/// switch — adding a new filter is a one-liner in the registry.
+///
+/// **Spec:** see `_docs/planning/active/SHELL-TODOS.md` — "Revised plan" + "Updates 2026-05-03"
+/// for the locked API and design decisions.
+struct TemplateEngine {
+
+    // MARK: - Public Types
+
+    /// Surface-specific context. Selects the default filter applied when a template
+    /// uses bare `{{result}}` with no explicit filter chain.
+    enum Context {
+        /// Shell command. Default filter: `|shell` (single-quote wrap + escape).
+        /// Used by both shortcut shell and shell destinations after unification.
+        case shell
+        /// URL or deeplink. Default filter: `|url_encode`.
+        case url
+        /// JSON body (e.g. webhook payload). Default filter: `|json`.
+        case json
+        /// No default filter. Used for MCP forms, prompt input, and AppleScript
+        /// destinations (call site does its own escaping for AppleScript).
+        case raw
+    }
+
+    /// Errors thrown during template parsing or filter execution.
+    enum FilterError: Error, LocalizedError {
+        case parseError(String)
+        case unknownFilter(String)
+        case badArgument(String, filter: String)
+        case llmFailed(String)
+        case busy
+
+        var errorDescription: String? {
+            switch self {
+            case .parseError(let msg):
+                return "Template parse error: \(msg)"
+            case .unknownFilter(let name):
+                return "Unknown filter: |\(name)"
+            case .badArgument(let msg, let filter):
+                return "Bad argument for |\(filter): \(msg)"
+            case .llmFailed(let detail):
+                return "LLM filter failed: \(detail)"
+            case .busy:
+                return "Cai is busy. Try again in a moment."
+            }
+        }
+    }
+
+    // MARK: - Public API
+
+    /// Renders a template by substituting variables and applying the filter chain.
+    /// Filters chain left-to-right: `{{result|trim|llm:"summarize"|json}}`.
+    ///
+    /// - Parameters:
+    ///   - template: the template string (may contain `{{var|filters}}` placeholders).
+    ///   - vars: variable values keyed by name (e.g. `["result": clipboardText]`).
+    ///     Standard variable in v1 is `{{result}}`; call sites may pass arbitrary
+    ///     additional keys (MCP forms pass `{{title}}`, `{{repo_owner}}`, etc.).
+    ///   - context: controls the default filter applied when no `|filter` is
+    ///     present in a `{{...}}` placeholder.
+    ///   - sourceBundleId: optional bundle ID of the app the user copied from.
+    ///     Forwarded to `|llm` filter so per-app Context Snippets are injected.
+    /// - Returns: the rendered string with all placeholders resolved.
+    /// - Throws: `FilterError.parseError` on malformed templates,
+    ///   `FilterError.unknownFilter` on unrecognized filter names,
+    ///   `FilterError.llmFailed` if an `|llm` filter call fails,
+    ///   `FilterError.busy` if MLX is mid-generation when an `|llm` call dispatches.
+    static func render(
+        _ template: String,
+        vars: [String: String],
+        context: Context,
+        sourceBundleId: String? = nil
+    ) async throws -> String {
+        let segments = try parse(template)
+        var output = ""
+        for segment in segments {
+            switch segment {
+            case .literal(let text):
+                output += text
+            case .placeholder(let varName, let filters):
+                // Unknown variable → empty string. We don't throw here because copying
+                // templates between contexts (e.g. {{title}} in a shell shortcut) is
+                // common and shouldn't kill the action.
+                let initial = vars[varName] ?? ""
+                let chain = filters.isEmpty ? defaultChain(for: context) : filters
+                var value = initial
+                for call in chain {
+                    guard let filter = filterRegistry[call.name] else {
+                        throw FilterError.unknownFilter(call.name)
+                    }
+                    value = try await filter.apply(
+                        value,
+                        args: call.args,
+                        sourceBundleId: sourceBundleId
+                    )
+                }
+                output += value
+            }
+        }
+        return output
+    }
+
+    // MARK: - Default Filter per Context
+
+    /// Returns the default filter chain for a context. Applied when a placeholder
+    /// has no explicit `|filter` segments — preserves v1 behavior at each surface.
+    private static func defaultChain(for context: Context) -> [FilterCall] {
+        switch context {
+        case .shell: return [FilterCall(name: "shell", args: [])]
+        case .url:   return [FilterCall(name: "url_encode", args: [])]
+        case .json:  return [FilterCall(name: "json", args: [])]
+        case .raw:   return []  // raw substitution; no filter applied
+        }
+    }
+
+    // MARK: - Filter Registry
+
+    /// Filter lookup table. Adding a new filter is a one-liner here — the engine
+    /// itself never branches on filter name.
+    private static let filterRegistry: [String: Filter] = [
+        "raw":        RawFilter(),
+        "shell":      ShellFilter(),
+        "json":       JsonFilter(),
+        "url_encode": UrlEncodeFilter(),
+        "llm":        LLMFilter(),
+    ]
+}
+
+// MARK: - Parsing
+
+extension TemplateEngine {
+
+    /// A parsed segment of the template — either literal text or a `{{...}}` placeholder.
+    fileprivate enum Segment: Equatable {
+        case literal(String)
+        case placeholder(variable: String, filters: [FilterCall])
+    }
+
+    /// A single filter invocation parsed from the template.
+    fileprivate struct FilterCall: Equatable {
+        let name: String
+        let args: [String]
+    }
+
+    /// Parses a template string into segments. Hand-rolled scanner — regex bites on
+    /// filter args containing `}`, `|`, or unbalanced quotes.
+    ///
+    /// The scanner has three implicit states:
+    /// - `LITERAL` — outside `{{...}}`
+    /// - `INSIDE_BRACES` — between `{{` and `}}` (handled by `findPlaceholderEnd`)
+    /// - `INSIDE_QUOTED_ARG` — inside `"..."` or `'...'` within a placeholder
+    ///   (handled by quote-tracking in `findPlaceholderEnd` and `splitTopLevel`)
+    fileprivate static func parse(_ template: String) throws -> [Segment] {
+        var segments: [Segment] = []
+        var literal = ""
+        var i = template.startIndex
+
+        while i < template.endIndex {
+            let next = template.index(after: i)
+            // Look for `{{` start
+            if template[i] == "{" && next < template.endIndex && template[next] == "{" {
+                if !literal.isEmpty {
+                    segments.append(.literal(literal))
+                    literal = ""
+                }
+                let contentStart = template.index(i, offsetBy: 2)
+                guard let contentEnd = findPlaceholderEnd(in: template, from: contentStart) else {
+                    let offset = template.distance(from: template.startIndex, to: i)
+                    throw FilterError.parseError("unclosed `{{` at offset \(offset)")
+                }
+                let inside = String(template[contentStart..<contentEnd])
+                segments.append(try parsePlaceholder(inside))
+                i = template.index(contentEnd, offsetBy: 2)
+            } else {
+                literal.append(template[i])
+                i = template.index(after: i)
+            }
+        }
+
+        if !literal.isEmpty {
+            segments.append(.literal(literal))
+        }
+        return segments
+    }
+
+    /// Finds the index of the `}}` that closes a placeholder, respecting quoted args
+    /// so `}}` inside `"..."` or `'...'` is treated as literal. Returns the index of
+    /// the first `}` of the closing pair; caller advances past `}}`.
+    ///
+    /// Backslash-escape handling uses parity counting: a quote is treated as escaped
+    /// only when preceded by an odd number of backslashes (so `\\"` correctly closes
+    /// after the literal backslash, while `\"` does not).
+    private static func findPlaceholderEnd(
+        in template: String,
+        from start: String.Index
+    ) -> String.Index? {
+        var i = start
+        var insideQuote: Character? = nil
+        var consecutiveBackslashes = 0
+        while i < template.endIndex {
+            let c = template[i]
+            if let quote = insideQuote {
+                if c == quote && consecutiveBackslashes % 2 == 0 {
+                    insideQuote = nil
+                }
+            } else if c == "\"" || c == "'" {
+                insideQuote = c
+            } else if c == "}" {
+                let nextIdx = template.index(after: i)
+                if nextIdx < template.endIndex && template[nextIdx] == "}" {
+                    return i
+                }
+            }
+            consecutiveBackslashes = (c == "\\") ? consecutiveBackslashes + 1 : 0
+            i = template.index(after: i)
+        }
+        return nil
+    }
+
+    /// Parses placeholder body (inside `{{...}}`) into variable name + filter chain.
+    /// Examples:
+    /// - `result` → variable: "result", filters: []
+    /// - `result|shell` → variable: "result", filters: [shell]
+    /// - `result|llm:"summarize"|json` → variable: "result", filters: [llm("summarize"), json]
+    private static func parsePlaceholder(_ inside: String) throws -> Segment {
+        let parts = try splitTopLevel(inside, on: "|")
+        let trimmed = parts.map { $0.trimmingCharacters(in: .whitespaces) }
+        guard !trimmed.isEmpty else {
+            return .placeholder(variable: "", filters: [])
+        }
+        let varName = trimmed[0]
+        let filters = try trimmed.dropFirst().map { try parseFilterCall($0) }
+        return .placeholder(variable: varName, filters: filters)
+    }
+
+    /// Splits a string on `separator` at the top level, ignoring quoted regions.
+    /// Tracks consecutive-backslash parity so `\\"` (escaped backslash + quote)
+    /// is correctly treated as a quote boundary, while `\"` (escaped quote) is not.
+    private static func splitTopLevel(_ s: String, on separator: Character) throws -> [String] {
+        var parts: [String] = []
+        var current = ""
+        var insideQuote: Character? = nil
+        var consecutiveBackslashes = 0
+        for c in s {
+            if let q = insideQuote {
+                if c == q && consecutiveBackslashes % 2 == 0 {
+                    insideQuote = nil
+                }
+                current.append(c)
+            } else if c == "\"" || c == "'" {
+                insideQuote = c
+                current.append(c)
+            } else if c == separator {
+                parts.append(current)
+                current = ""
+            } else {
+                current.append(c)
+            }
+            consecutiveBackslashes = (c == "\\") ? consecutiveBackslashes + 1 : 0
+        }
+        if insideQuote != nil {
+            throw FilterError.parseError("unclosed quote in placeholder")
+        }
+        parts.append(current)
+        return parts
+    }
+
+    /// Parses a single filter invocation: `filter:"arg1","arg2"` or `filter:80` or `filter`.
+    private static func parseFilterCall(_ s: String) throws -> FilterCall {
+        guard !s.isEmpty else {
+            throw FilterError.parseError("empty filter in placeholder (stray `|`?)")
+        }
+        guard let colonIdx = s.firstIndex(of: ":") else {
+            return FilterCall(name: s, args: [])
+        }
+        let name = String(s[..<colonIdx]).trimmingCharacters(in: .whitespaces)
+        let argsString = String(s[s.index(after: colonIdx)...])
+        let argParts = try splitTopLevel(argsString, on: ",")
+        let args = argParts.map { unquote($0.trimmingCharacters(in: .whitespaces)) }
+        return FilterCall(name: name, args: args)
+    }
+
+    /// Strips matching outer `"..."` or `'...'` quotes and resolves common escape
+    /// sequences (`\"`, `\'`, `\\`, `\n`, `\t`). Single-pass scanner so escape
+    /// ordering doesn't bite (unlike chained string-replace).
+    private static func unquote(_ s: String) -> String {
+        guard s.count >= 2,
+              let first = s.first,
+              let last = s.last,
+              (first == "\"" && last == "\"") || (first == "'" && last == "'")
+        else {
+            return s
+        }
+        let inner = s.dropFirst().dropLast()
+        var result = ""
+        var i = inner.startIndex
+        while i < inner.endIndex {
+            let c = inner[i]
+            let nextIdx = inner.index(after: i)
+            if c == "\\" && nextIdx < inner.endIndex {
+                let next = inner[nextIdx]
+                switch next {
+                case "\"", "'", "\\":
+                    result.append(next)
+                    i = inner.index(i, offsetBy: 2)
+                    continue
+                case "n":
+                    result.append("\n")
+                    i = inner.index(i, offsetBy: 2)
+                    continue
+                case "t":
+                    result.append("\t")
+                    i = inner.index(i, offsetBy: 2)
+                    continue
+                default:
+                    // Unknown escape — pass through both chars literally.
+                    result.append(c)
+                    i = nextIdx
+                    continue
+                }
+            }
+            result.append(c)
+            i = nextIdx
+        }
+        return result
+    }
+}
+
+// MARK: - Filter Protocol
+
+/// A pluggable filter applied to a value during template rendering. Sync filters
+/// (raw, shell, json, url_encode) complete instantly under the async wrapper;
+/// `|llm` is the only genuinely async filter in v1.
+protocol Filter {
+    var name: String { get }
+    func apply(_ input: String, args: [String], sourceBundleId: String?) async throws -> String
+}
+
+// MARK: - Sync Filters
+
+/// `|raw` — pass-through with no escaping. User is responsible for the result being safe.
+struct RawFilter: Filter {
+    let name = "raw"
+    func apply(_ input: String, args: [String], sourceBundleId: String?) async throws -> String {
+        return input
+    }
+}
+
+/// `|shell` — wrap in single quotes and escape internal single quotes for `/bin/zsh -c`.
+/// Empty input → `''`. The classic `'\''`-style escape: close the wrapping quote,
+/// emit an escaped single quote, reopen the wrapping quote. Bash-safe for any input.
+struct ShellFilter: Filter {
+    let name = "shell"
+    func apply(_ input: String, args: [String], sourceBundleId: String?) async throws -> String {
+        let escaped = input.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
+    }
+}
+
+/// `|json` — JSON string-escape the input. Returns the inner content WITHOUT outer
+/// quotes, so the user supplies the surrounding `"..."` in their template:
+/// `{"text": "{{result|json}}"}`. Handles unicode, control chars, embedded quotes,
+/// and backslashes via `JSONEncoder` (the canonical Foundation escaper).
+struct JsonFilter: Filter {
+    let name = "json"
+    func apply(_ input: String, args: [String], sourceBundleId: String?) async throws -> String {
+        // Encode as a single-element array so we can strip `[` `"` … `"` `]` and
+        // recover the inner JSON-string-content. Encoding a bare String would
+        // require a top-level non-fragment workaround; the array path is simpler.
+        let data = try JSONEncoder().encode([input])
+        guard let json = String(data: data, encoding: .utf8), json.count >= 4 else {
+            throw TemplateEngine.FilterError.badArgument(
+                "could not JSON-encode input",
+                filter: "json"
+            )
+        }
+        // json is `["..."]` — drop `["` from the front and `"]` from the back.
+        return String(json.dropFirst(2).dropLast(2))
+    }
+}
+
+/// `|url_encode` — percent-encode using RFC 3986 unreserved characters only.
+/// Matches JavaScript's `encodeURIComponent()`. Safe for embedding in any URL
+/// component (query value, path segment, fragment) without breaking surrounding
+/// structure: `&`, `=`, `?`, `/`, `#` all get encoded.
+///
+/// Note: `Foundation.urlQueryAllowed` would *not* encode `=` or `&` (they're
+/// reserved for query-string syntax), which is wrong when the user's value
+/// contains them — e.g. `result = "a=1&b=2"` substituted into
+/// `?q={{result|url_encode}}&other=…` would otherwise break `other` into a
+/// separate parameter. We encode the unreserved-only set instead.
+struct UrlEncodeFilter: Filter {
+    let name = "url_encode"
+
+    /// RFC 3986 unreserved characters — `A-Z a-z 0-9 - . _ ~`. Everything else
+    /// gets percent-encoded.
+    private static let unreserved: CharacterSet = {
+        var set = CharacterSet()
+        set.insert(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return set
+    }()
+
+    func apply(_ input: String, args: [String], sourceBundleId: String?) async throws -> String {
+        return input.addingPercentEncoding(withAllowedCharacters: Self.unreserved) ?? input
+    }
+}
+
+// MARK: - Async Filters
+
+/// `|llm:"directive"` — run the input through Cai's configured LLM with `directive`
+/// as the system prompt. Honors per-app Context Snippets when `sourceBundleId` is
+/// provided. Headline filter for v1 — the feature that makes Cai's templates a
+/// programmable LLM pipeline rather than just escaping with extra steps.
+///
+/// **Provider:** always `CaiSettings.modelProvider`. No `model:` arg in v1.
+/// **Streaming:** none — filter is blocking; the destination needs the full result
+/// before it runs.
+/// **Errors:** maps `MLXInferenceError.busy` to `FilterError.busy` and any other
+/// `LLMError` to `FilterError.llmFailed`.
+struct LLMFilter: Filter {
+    let name = "llm"
+    func apply(_ input: String, args: [String], sourceBundleId: String?) async throws -> String {
+        guard let directive = args.first, !directive.isEmpty else {
+            throw TemplateEngine.FilterError.badArgument(
+                "missing directive (use |llm:\"your instruction\")",
+                filter: "llm"
+            )
+        }
+
+        // Frame the LLM for filter-style use: output the raw result, nothing else.
+        // The user-supplied directive specifies the actual task on the next line.
+        let systemPrompt = """
+            Output ONLY the result of the user's instruction. No preamble, no explanations, \
+            no quotes around the output — your response is substituted directly into a \
+            template, where surrounding text and quoting are already handled. Plain text \
+            only — no markdown syntax.
+
+            Instruction: \(directive)
+            """
+
+        // Resolve "About You" + per-app Context Snippet on the main actor (matches
+        // the codebase convention for CaiSettings + ContextSnippetsManager access).
+        let aboutYou = await MainActor.run { CaiSettings.shared.aboutYou }
+        let snippet: ContextSnippet? = await MainActor.run {
+            ContextSnippetsManager.shared.snippet(forBundleId: sourceBundleId)
+        }
+
+        let messages = LLMService.buildMessages(
+            systemPrompt: systemPrompt,
+            userPrompt: input,
+            aboutYou: aboutYou,
+            snippet: snippet
+        )
+
+        do {
+            let response = try await LLMService.shared.generateWithMessages(messages)
+            return response.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch MLXInferenceError.busy {
+            throw TemplateEngine.FilterError.busy
+        } catch let llmError as LLMError {
+            throw TemplateEngine.FilterError.llmFailed(
+                llmError.errorDescription ?? "LLM failed"
+            )
+        } catch {
+            // Unexpected error type (e.g. MLXInferenceError.modelNotLoaded). Map to
+            // llmFailed so the caller's toast shows something useful.
+            throw TemplateEngine.FilterError.llmFailed(error.localizedDescription)
+        }
+    }
+}
