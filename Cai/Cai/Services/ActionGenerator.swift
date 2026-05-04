@@ -58,7 +58,8 @@ struct ActionGenerator {
                     subtitle: "Send to \(dest.name)",
                     icon: dest.icon,
                     shortcut: destShortcut,
-                    type: .outputDestination(dest)
+                    type: .outputDestination(dest),
+                    next: dest.next
                 ))
             }
             return items
@@ -353,7 +354,8 @@ struct ActionGenerator {
                 subtitle: "Send to \(dest.name)",
                 icon: dest.icon,
                 shortcut: shortcut,
-                type: .outputDestination(dest)
+                type: .outputDestination(dest),
+                next: dest.next
             ))
         }
 
@@ -595,7 +597,11 @@ struct ActionGenerator {
             icon: sc.type.icon,
             shortcut: shortcut,
             type: actionType,
-            autoReplaceSelection: sc.type == .prompt && sc.autoReplaceSelection
+            autoReplaceSelection: sc.type == .prompt && sc.autoReplaceSelection,
+            next: sc.next,
+            // Only meaningful for the prompt branch of executeAction; shell
+            // dispatch reads `runInBackground` from the .shortcutShell enum case.
+            runInBackground: sc.type == .prompt && sc.runInBackground
         )
     }
 }

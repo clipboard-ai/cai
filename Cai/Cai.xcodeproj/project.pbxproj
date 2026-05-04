@@ -85,6 +85,7 @@
 		CAI00412 /* TemplateEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00413 /* TemplateEngineTests.swift */; };
 		CAI00414 /* BackgroundTaskTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00415 /* BackgroundTaskTracker.swift */; };
 		CAI00416 /* ChainExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00417 /* ChainExecutor.swift */; };
+		CAI00420 /* ChainExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00421 /* ChainExecutorTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -174,6 +175,7 @@
 		CAI00413 /* TemplateEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateEngineTests.swift; sourceTree = "<group>"; };
 		CAI00415 /* BackgroundTaskTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskTracker.swift; sourceTree = "<group>"; };
 		CAI00417 /* ChainExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainExecutor.swift; sourceTree = "<group>"; };
+		CAI00421 /* ChainExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainExecutorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -280,6 +282,7 @@
 				CAI00405 /* ContextSnippetsTests.swift */,
 				CAI00501 /* MLXInferenceTests.swift */,
 				CAI00413 /* TemplateEngineTests.swift */,
+				CAI00421 /* ChainExecutorTests.swift */,
 			);
 			path = CaiTests;
 			sourceTree = "<group>";
@@ -522,6 +525,7 @@
 				CAI00404 /* ContextSnippetsTests.swift in Sources */,
 				CAI00500 /* MLXInferenceTests.swift in Sources */,
 				CAI00412 /* TemplateEngineTests.swift in Sources */,
+				CAI00420 /* ChainExecutorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

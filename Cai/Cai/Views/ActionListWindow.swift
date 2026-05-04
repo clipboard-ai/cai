@@ -1126,6 +1126,9 @@ struct ActionListWindow: View {
             // Fast-path: user-configured shortcut marked "auto replace selection".
             // Skip the result view; dismiss Cai, generate in the background, then
             // paste the response over the source app's selection via Cmd+V.
+            // Chain (`action.next` non-empty) fires after paste completes,
+            // independent of paste outcome — chain operates on the LLM result.
+            let chainSlugs = action.next
             if action.autoReplaceSelection {
                 let bundleId = self.sourceBundleId
                 // Truncate long names so the toast pill doesn't stretch across screen.
@@ -1160,6 +1163,11 @@ struct ActionListWindow: View {
                                 }
                             }
                         }
+                        if !chainSlugs.isEmpty {
+                            await ChainExecutor.shared.runChain(
+                                chainSlugs, initialInput: trimmed, sourceBundleId: bundleId
+                            )
+                        }
                     } catch {
                         await MainActor.run {
                             NotificationCenter.default.post(
@@ -1167,6 +1175,58 @@ struct ActionListWindow: View {
                                 userInfo: ["message": "Error: \(error.localizedDescription)"]
                             )
                         }
+                    }
+                }
+                return
+            }
+
+            // Chained prompt without auto-replace: dismiss Cai, generate
+            // silently, pipe the LLM response into the chain. No ResultView
+            // mid-chain (matches the shell-bg + dest UX).
+            if !chainSlugs.isEmpty {
+                let bundleId = self.sourceBundleId
+                onDismiss()
+                Task { @MainActor in
+                    BackgroundTaskTracker.shared.start()
+                    defer { BackgroundTaskTracker.shared.end() }
+                    do {
+                        let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
+                        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                        await ChainExecutor.shared.runChain(
+                            chainSlugs, initialInput: trimmed, sourceBundleId: bundleId
+                        )
+                    } catch {
+                        NotificationCenter.default.post(
+                            name: .caiShowToast, object: nil,
+                            userInfo: ["message": "Failed: \(error.localizedDescription)"]
+                        )
+                    }
+                }
+                return
+            }
+
+            // Plain background prompt: user toggled `runInBackground` on a
+            // prompt-type shortcut. Dismiss + LLM + result snippet toast.
+            // Mirrors the shell-bg shape so the UX is consistent across types.
+            if action.runInBackground {
+                let actionTitle = action.title
+                onDismiss()
+                Task { @MainActor in
+                    BackgroundTaskTracker.shared.start()
+                    defer { BackgroundTaskTracker.shared.end() }
+                    do {
+                        let result = try await LLMService.shared.generateWithMessages(initialMessages, config: config)
+                        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let snippet = String(trimmed.prefix(80))
+                        NotificationCenter.default.post(
+                            name: .caiShowToast, object: nil,
+                            userInfo: ["message": snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet]
+                        )
+                    } catch {
+                        NotificationCenter.default.post(
+                            name: .caiShowToast, object: nil,
+                            userInfo: ["message": "Failed: \(error.localizedDescription)"]
+                        )
                     }
                 }
                 return
@@ -1195,20 +1255,29 @@ struct ActionListWindow: View {
             if let url = URL(string: urlString) {
                 SystemActions.openURL(url)
             }
+            let chainSlugs = action.next
+            let bundleId = self.sourceBundleId
             onDismiss()
+            // URL output is empty per the chain design (URL was opened, nothing
+            // to propagate). Downstream steps receive "".
+            if !chainSlugs.isEmpty {
+                Task { @MainActor in
+                    await ChainExecutor.shared.runChain(
+                        chainSlugs, initialInput: "", sourceBundleId: bundleId
+                    )
+                }
+            }
 
         case .shortcutShell(let command, let runInBackground):
             let clipboardText = self.text
             let bundleId = self.sourceBundleId
+            let chainSlugs = action.next
 
-            if runInBackground {
-                // Fire-and-forget path: dismiss Cai immediately, run the shell
-                // command off-screen, surface a toast on completion. Used for
-                // `|llm`-containing templates (which would otherwise block the
-                // ResultView for 5-30s) and explicitly-toggled shortcuts where
-                // the user doesn't need to see the output (`say`, Slack TL;DR,
-                // commit-message-to-clipboard, etc.). Menu bar icon pulses while
-                // the task runs (BackgroundTaskTracker → AppDelegate observer).
+            // Chained shells force the background path so the chain runs
+            // silently with menu-bar pulse + terminal toast UX (no ResultView
+            // mid-chain). Plus the existing reasons: explicit user toggle, or
+            // `|llm` templates that would block ResultView for 5-30s.
+            if runInBackground || !chainSlugs.isEmpty {
                 let actionTitle = action.title
                 onDismiss()
                 Task { @MainActor in
@@ -1218,12 +1287,19 @@ struct ActionListWindow: View {
                         let result = try await Self.runShellCommand(
                             command, text: clipboardText, sourceBundleId: bundleId
                         )
-                        let snippet = String(result.prefix(80))
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        NotificationCenter.default.post(
-                            name: .caiShowToast, object: nil,
-                            userInfo: ["message": snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet]
-                        )
+                        if !chainSlugs.isEmpty {
+                            // ChainExecutor posts its own terminal toast.
+                            await ChainExecutor.shared.runChain(
+                                chainSlugs, initialInput: result, sourceBundleId: bundleId
+                            )
+                        } else {
+                            let snippet = String(result.prefix(80))
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            NotificationCenter.default.post(
+                                name: .caiShowToast, object: nil,
+                                userInfo: ["message": snippet.isEmpty ? "Done \u{2014} \(actionTitle)" : snippet]
+                            )
+                        }
                     } catch {
                         NotificationCenter.default.post(
                             name: .caiShowToast, object: nil,
@@ -1696,6 +1772,10 @@ struct ActionListWindow: View {
     // MARK: - Output Destinations
 
     private func executeDestination(_ destination: OutputDestination, with text: String) {
+        // Destinations don't propagate output (per chain design — they're
+        // side-effect actions). Chain steps receive "" as initial input.
+        let chainSlugs = destination.next
+
         // Special-case paste-back: dismiss Cai, then call pasteResult directly
         // so the three PasteOutcome cases can each surface their own toast.
         // pasteResult handles activation of the source app when needed (Cai
@@ -1719,6 +1799,13 @@ struct ActionListWindow: View {
                         userInfo: ["message": "Could not paste. Check Accessibility permission."]
                     )
                 }
+                if !chainSlugs.isEmpty {
+                    Task { @MainActor in
+                        await ChainExecutor.shared.runChain(
+                            chainSlugs, initialInput: "", sourceBundleId: bundleId
+                        )
+                    }
+                }
             }
             return
         }
@@ -1726,17 +1813,26 @@ struct ActionListWindow: View {
         // Copy to clipboard as a fallback "you can paste this somewhere" side-effect.
         SystemActions.copyToClipboard(text)
 
+        let bundleId = sourceBundleId
         Task {
             do {
-                try await OutputDestinationService.shared.execute(destination, with: text, sourceBundleId: sourceBundleId)
+                try await OutputDestinationService.shared.execute(destination, with: text, sourceBundleId: bundleId)
                 await MainActor.run {
                     // Dismiss first — orderOut removes the main window from the
                     // display hierarchy so the toast's NSHostingView doesn't conflict.
                     onDismiss()
-                    NotificationCenter.default.post(
-                        name: .caiShowToast,
-                        object: nil,
-                        userInfo: ["message": "Sent to \(destination.name)"]
+                    if chainSlugs.isEmpty {
+                        NotificationCenter.default.post(
+                            name: .caiShowToast,
+                            object: nil,
+                            userInfo: ["message": "Sent to \(destination.name)"]
+                        )
+                    }
+                    // Chained: ChainExecutor posts the terminal toast.
+                }
+                if !chainSlugs.isEmpty {
+                    await ChainExecutor.shared.runChain(
+                        chainSlugs, initialInput: "", sourceBundleId: bundleId
                     )
                 }
             } catch {

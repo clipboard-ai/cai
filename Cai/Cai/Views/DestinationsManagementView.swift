@@ -15,6 +15,10 @@ struct DestinationsManagementView: View {
     @State private var formName: String = ""
     @State private var formTypeTag: String = "webhook"
     @State private var formShowInActionList: Bool = false
+    /// Comma-separated names of follow-up actions. Parsed into `[String]` on
+    /// save (trimmed, empties dropped). Lookup happens by name in
+    /// `ChainExecutor`; shortcuts win on collision with destinations.
+    @State private var formNext: String = ""
 
     // AppleScript
     @State private var formAppleScript: String = ""
@@ -408,6 +412,20 @@ struct DestinationsManagementView: View {
             Toggle("Show in action list", isOn: $formShowInActionList)
                 .font(.system(size: 11))
 
+            // Chain — comma-separated names of follow-up actions. Destinations
+            // pass "" downstream (per chain design — they're side-effect actions).
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Then run")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary)
+                TextField("e.g. Send to Slack, Save to Notes", text: $formNext)
+                    .font(.system(size: 11))
+                Text("Comma-separated action names. Lookup is by name; shortcuts win on collision.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // Save / Cancel
             HStack {
                 Button("Cancel") {
@@ -601,6 +619,7 @@ struct DestinationsManagementView: View {
         formName = dest.name
         formShowInActionList = dest.showInActionList
         formSetupFields = dest.setupFields
+        formNext = dest.next.joined(separator: ", ")
 
         switch dest.type {
         case .applescript(let template):
@@ -636,6 +655,11 @@ struct DestinationsManagementView: View {
         guard !trimmedName.isEmpty else { return }
 
         let destType = buildDestinationType()
+        // Parse comma-separated chain names. Trim each, drop empties.
+        let nextSlugs = formNext
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
 
         if isNew {
             let dest = OutputDestination(
@@ -645,7 +669,8 @@ struct DestinationsManagementView: View {
                 isEnabled: true,
                 isBuiltIn: false,
                 showInActionList: formShowInActionList,
-                setupFields: formSetupFields
+                setupFields: formSetupFields,
+                next: nextSlugs
             )
             withAnimation(.easeInOut(duration: 0.15)) {
                 settings.outputDestinations.append(dest)
@@ -658,6 +683,7 @@ struct DestinationsManagementView: View {
                 settings.outputDestinations[index].type = destType
                 settings.outputDestinations[index].showInActionList = formShowInActionList
                 settings.outputDestinations[index].setupFields = formSetupFields
+                settings.outputDestinations[index].next = nextSlugs
             }
         }
 
@@ -686,6 +712,7 @@ struct DestinationsManagementView: View {
         formDeeplink = ""
         formShellCommand = ""
         formSetupFields = []
+        formNext = ""
     }
 
     private func cancelForm() {

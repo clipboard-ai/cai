@@ -21,6 +21,10 @@ struct ShortcutsManagementView: View {
     @State private var formAutoReplace: Bool = false
     @State private var formPinned: Bool = false
     @State private var formRunInBackground: Bool = false
+    /// Comma-separated names of follow-up actions. Parsed into `[String]` on
+    /// save (trimmed, empties dropped). Lookup happens by name at chain time
+    /// in `ChainExecutor`; shortcuts win on collision with destinations.
+    @State private var formNext: String = ""
     /// Tracks whether the *previous* known formValue contained `|llm`. Used by
     /// the auto-enable heuristic for "Run in background" so we only fire on
     /// transitions, never on initial editor population (which would otherwise
@@ -352,6 +356,7 @@ struct ShortcutsManagementView: View {
         formAutoReplace = shortcut.autoReplaceSelection
         formPinned = shortcut.pinned
         formRunInBackground = shortcut.runInBackground
+        formNext = shortcut.next.joined(separator: ", ")
         // Seed the tracker with the loaded value's |llm state so the *first*
         // onChange triggered by populating formValue doesn't mistakenly auto-
         // flip the toggle on (which would override the user's persisted
@@ -373,6 +378,7 @@ struct ShortcutsManagementView: View {
         formAutoReplace = false
         formPinned = false
         formRunInBackground = false
+        formNext = ""
         lastFormValueHadLLM = false  // empty value, no |llm
         withAnimation(.easeInOut(duration: 0.2)) {
             isAddingNew = true
@@ -490,17 +496,20 @@ struct ShortcutsManagementView: View {
                 .controlSize(.mini)
             }
 
-            // Run in background, shell-type only.
-            // Auto-enabled when the template contains `|llm` (the editor's
-            // onChange handler below sets it on transition into `|llm`).
-            // User can override either way.
-            if formType == .shell {
+            // Run in background, shell- and prompt-type. URL shortcuts skip
+            // this — they're already fire-and-forget.
+            // Auto-enabled for shell when the template contains `|llm` (the
+            // onChange handler below sets it on transition into `|llm`). User
+            // can override either way.
+            if formType == .shell || formType == .prompt {
                 Toggle(isOn: $formRunInBackground) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Run in background")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.caiTextPrimary)
-                        Text("Dismiss Cai immediately and run the command in the background. Result surfaces as a toast. Recommended for slow commands and `|llm` filters.")
+                        Text(formType == .shell
+                             ? "Dismiss Cai immediately and run the command in the background. Result surfaces as a toast. Recommended for slow commands and `|llm` filters."
+                             : "Dismiss Cai immediately and run the prompt in the background. Result surfaces as a toast.")
                             .font(.system(size: 10))
                             .foregroundColor(.caiTextSecondary.opacity(0.6))
                             .fixedSize(horizontal: false, vertical: true)
@@ -524,6 +533,23 @@ struct ShortcutsManagementView: View {
             }
             .toggleStyle(.switch)
             .controlSize(.mini)
+
+            // Chain — applies to all types. Comma-separated names of follow-up
+            // actions (shortcuts or destinations). When non-empty, this action
+            // dismisses Cai immediately on trigger and runs silently with menu
+            // bar pulse + terminal toast (no result view mid-chain).
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Then run")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary)
+                TextField("e.g. Send to Slack, Save to Notes", text: $formNext)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                Text("Comma-separated action names. Each step's output pipes into the next via {{result}}. Lookup is by name; shortcuts win on collision with destinations.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // Save / Cancel buttons
             HStack(spacing: 8) {
@@ -637,8 +663,14 @@ struct ShortcutsManagementView: View {
 
         // Only the prompt type supports auto-replace; other types silently drop it.
         let autoReplace = formType == .prompt && formAutoReplace
-        // Only the shell type supports background execution; other types drop it.
-        let runInBackground = formType == .shell && formRunInBackground
+        // Shell + prompt support background execution; URL drops it.
+        let runInBackground = (formType == .shell || formType == .prompt) && formRunInBackground
+        // Parse comma-separated chain names. Trim each, drop empties so a
+        // trailing comma or " ,,foo" doesn't create phantom steps.
+        let nextSlugs = formNext
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
 
         if isNew {
             let shortcut = CaiShortcut(
@@ -647,7 +679,8 @@ struct ShortcutsManagementView: View {
                 value: trimmedValue,
                 autoReplaceSelection: autoReplace,
                 pinned: formPinned,
-                runInBackground: runInBackground
+                runInBackground: runInBackground,
+                next: nextSlugs
             )
             withAnimation(.easeInOut(duration: 0.15)) {
                 // Build the new ordered array in a local, then assign once so
@@ -669,6 +702,7 @@ struct ShortcutsManagementView: View {
                 copy[index].autoReplaceSelection = autoReplace
                 copy[index].pinned = formPinned
                 copy[index].runInBackground = runInBackground
+                copy[index].next = nextSlugs
                 settings.shortcuts = copy.filter(\.pinned) + copy.filter { !$0.pinned }
             }
         }
@@ -688,6 +722,7 @@ struct ShortcutsManagementView: View {
         formAutoReplace = false
         formPinned = false
         formRunInBackground = false
+        formNext = ""
         lastFormValueHadLLM = false
     }
 

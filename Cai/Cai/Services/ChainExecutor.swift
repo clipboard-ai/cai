@@ -39,7 +39,20 @@ import Foundation
 final class ChainExecutor {
 
     static let shared = ChainExecutor()
-    private init() {}
+
+    /// Resolves an action name to either a `CaiShortcut` or `OutputDestination`.
+    /// The production resolver reads from `CaiSettings.shared`; tests inject a
+    /// closure that returns from a known fixture map so they don't depend on
+    /// the global singleton's state.
+    typealias Resolver = @MainActor (String) -> ResolvedAction?
+
+    private let injectedResolver: Resolver?
+
+    /// Default init wires the production singleton-backed resolver. Tests use
+    /// `init(resolver:)` to supply a fixture-backed closure.
+    init(resolver: Resolver? = nil) {
+        self.injectedResolver = resolver
+    }
 
     /// Hard cap on chain depth. Catches pathological non-cyclic chains
     /// (50+ distinct slugs in a line) and provides belt-and-suspenders
@@ -77,8 +90,10 @@ final class ChainExecutor {
     //
     // Lookup happens by `name`. Shortcuts win on collision with destinations,
     // mirroring the action-list dispatch order.
+    //
+    // Internal (not private) so tests can construct fixtures via `Resolver`.
 
-    private enum ResolvedAction {
+    enum ResolvedAction {
         case shortcut(CaiShortcut)
         case destination(OutputDestination)
 
@@ -210,6 +225,9 @@ final class ChainExecutor {
     // MARK: - Lookup
 
     private func resolve(_ name: String) -> ResolvedAction? {
+        if let injected = injectedResolver {
+            return injected(name)
+        }
         if let shortcut = CaiSettings.shared.shortcuts.first(where: { $0.name == name }) {
             return .shortcut(shortcut)
         }
@@ -218,6 +236,28 @@ final class ChainExecutor {
         }
         return nil
     }
+
+    // MARK: - Test entry
+    //
+    // Exposes the throwing recursive executor so tests can assert directly on
+    // outputs and `ChainError` cases. The public `runChain(...)` wraps this
+    // with toast + tracker plumbing, both of which are tedious to test.
+
+    #if DEBUG
+    func executeForTesting(
+        slugs: [String],
+        initialInput: String,
+        sourceBundleId: String? = nil
+    ) async throws -> String {
+        try await execute(
+            slugs: slugs,
+            pipe: initialInput,
+            sourceBundleId: sourceBundleId,
+            visited: [],
+            depth: 0
+        )
+    }
+    #endif
 
     // MARK: - Single-step dispatch
 
