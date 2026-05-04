@@ -46,6 +46,21 @@ struct ShortcutsManagementView: View {
     /// Reset explicitly when the form is opened (Add or Edit) and on cancel.
     @State private var lastFormValueHadLLM: Bool = false
 
+    /// Whether the "Then run" chip editor is expanded inline. Auto-set to
+    /// `true` when entering edit mode on a shortcut with non-empty `next`,
+    /// so users immediately see the chain. Stays collapsed for new actions
+    /// and edits of un-chained actions until the user clicks the chip.
+    @State private var thenRunExpanded: Bool = false
+
+    /// Which field's `(?)` help popover is open (nil = none open).
+    /// Used to show in-context explanations without permanent grey helper text.
+    @State private var openHelpPopover: HelpField?
+
+    enum HelpField: String, Identifiable {
+        case value, thenRun
+        var id: String { rawValue }
+    }
+
     /// Display order for the Settings list and the action list: pinned first
     /// (in user-defined drag order), unpinned after (also in user order).
     /// `settings.shortcuts` is the canonical store; this is only a view.
@@ -95,19 +110,21 @@ struct ShortcutsManagementView: View {
 
                 Spacer()
 
-                // Top-right add button — mirrors DestinationsManagementView so
-                // users don't have to scroll to the bottom of the list to add a
-                // new action. Hidden while a form is open to avoid two
-                // simultaneous Add/Edit forms.
-                if !isAddingNew && editingShortcutId == nil {
-                    Button(action: { beginAdding() }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.caiPrimary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Add a new custom action")
+                // Top-right add button — always visible. Clicking while a
+                // form is open cancels that edit (no discard prompt — same
+                // policy as the × in the editor) and opens a fresh add form.
+                // Discoverability beats accidental-loss avoidance here:
+                // hiding the + when editing made users feel trapped.
+                Button(action: {
+                    cancelForm()
+                    beginAdding()
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.caiPrimary)
                 }
+                .buttonStyle(.plain)
+                .help("Add a new custom action")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -374,6 +391,9 @@ struct ShortcutsManagementView: View {
         formPinned = shortcut.pinned
         formRunInBackground = shortcut.runInBackground
         formNext = shortcut.next
+        // Auto-expand the chain editor if the shortcut already has steps —
+        // user immediately sees what's chained. Empty chains stay collapsed.
+        thenRunExpanded = !shortcut.next.isEmpty
         // Seed the tracker with the loaded value's |llm state so the *first*
         // onChange triggered by populating formValue doesn't mistakenly auto-
         // flip the toggle on (which would override the user's persisted
@@ -396,6 +416,7 @@ struct ShortcutsManagementView: View {
         formPinned = false
         formRunInBackground = false
         formNext = []
+        thenRunExpanded = false  // collapsed for new actions
         lastFormValueHadLLM = false  // empty value, no |llm
         withAnimation(.easeInOut(duration: 0.2)) {
             isAddingNew = true
@@ -404,218 +425,68 @@ struct ShortcutsManagementView: View {
     }
 
     // MARK: - Shortcut Form (Add / Edit)
+    //
+    // Linear/Apple-inspired layout:
+    // - Title row: [📌 pin] [H1 title] [⋯ menu] [× cancel]
+    // - Type picker (no label, picker IS the affordance)
+    // - Unified input field with auto-grow + (?) inline help + inline shell warning
+    // - Bottom chip row: collapsible "Then run" + Background + Auto-replace toggles
+    // - Bottom-right: Cancel + Save (⌘⏎)
+    //
+    // Decisions live in DESIGN.md "Decisions Log" 2026-05-04 (v1.7 redesign).
 
     private func shortcutForm(isNew: Bool, shortcutId: UUID?) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Name field
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Name")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary)
-                TextField("e.g. Email Reply, Reddit", text: $formName)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-            }
+        VStack(alignment: .leading, spacing: 14) {
+            titleRow(isNew: isNew, shortcutId: shortcutId)
 
-            // Type picker
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Type")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary)
-                Picker("", selection: $formType) {
-                    ForEach(CaiShortcut.ShortcutType.allCases, id: \.self) { type in
-                        Text(type.label).tag(type)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-            }
+            typePicker
 
-            // Value field
-            VStack(alignment: .leading, spacing: 4) {
-                let fieldLabel: String = {
-                    switch formType {
-                    case .prompt: return "Prompt"
-                    case .url: return "URL Template"
-                    case .shell: return "Shell Command"
-                    }
-                }()
-                Text(fieldLabel)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary)
-                let useMonospaced = formType == .url || formType == .shell
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: $formValue)
-                        .font(.system(size: 12, design: useMonospaced ? .monospaced : .default))
-                        .scrollContentBackground(.hidden)
-                        .padding(4)
-                    if formValue.isEmpty {
-                        Text(formType.placeholder)
-                            .font(.system(size: 12, design: useMonospaced ? .monospaced : .default))
-                            .foregroundColor(.caiTextSecondary.opacity(0.4))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .frame(minHeight: 60, maxHeight: 140)
-                .background(Color(nsColor: .textBackgroundColor))
-                .cornerRadius(5)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-                )
-                if formType == .url {
-                    Text("Use %s where clipboard text should be inserted")
-                        .font(.system(size: 10))
-                        .foregroundColor(.caiTextSecondary.opacity(0.5))
-                } else if formType == .shell {
-                    Text("Use {{result}} where clipboard text should be inserted. Text is also passed via stdin.")
-                        .font(.system(size: 10))
-                        .foregroundColor(.caiTextSecondary.opacity(0.5))
-                }
+            valueField
 
-                // Code execution warning
-                if formType == .shell {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.caiError)
-                        Text("This action will execute code on your machine. Only use commands you understand and trust.")
-                            .font(.system(size: 10))
-                            .foregroundColor(.caiError)
-                    }
-                    .padding(8)
-                    .background(Color.caiError.opacity(0.08))
-                    .cornerRadius(6)
-                }
+            Divider()
+                .padding(.vertical, 2)
 
-                // Note: we used to show a hint here when the v1 wrapped pattern
-                // (`'{{result}}'`) was typed, but the auto-migration in
-                // saveForm() handles it silently and correctly — the hint just
-                // added cognitive load. Removed.
-            }
+            chipRow(shortcutId: shortcutId)
 
-            // Auto replace selection, prompt-type only
-            if formType == .prompt {
-                Toggle(isOn: $formAutoReplace) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Auto replace selection")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.caiTextPrimary)
-                        Text("Paste the response over your selection and skip the review screen.")
-                            .font(.system(size: 10))
-                            .foregroundColor(.caiTextSecondary.opacity(0.6))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-            }
-
-            // Chain — applies to all types. Names of follow-up actions
-            // (shortcuts or destinations). When non-empty, this action
-            // dismisses Cai immediately on trigger and runs silently with menu
-            // bar pulse + terminal toast (no result view mid-chain).
-            // Placed above "Run in background" because it's the higher-signal
-            // setting for chains: setting it forces background dispatch anyway.
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Then run")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary)
-                ChainStepsTokenField(
-                    steps: $formNext,
-                    availableCaiActionNames: availableChainNames(excluding: shortcutId),
-                    placeholder: "Search actions to add..."
-                )
-                Text("Each step's output pipes into the next via {{result}}. Type to search; ⏎ or comma to add. Lookup is by name; shortcuts win on collision with destinations.")
-                    .font(.system(size: 10))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Run in background, shell- and prompt-type. URL shortcuts skip
-            // this — they're already fire-and-forget.
-            // Auto-enabled for shell when the template contains `|llm` (the
-            // onChange handler below sets it on transition into `|llm`). User
-            // can override either way.
-            if formType == .shell || formType == .prompt {
-                Toggle(isOn: $formRunInBackground) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Run in background")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.caiTextPrimary)
-                        Text(formType == .shell
-                             ? "Dismiss Cai immediately and run the command in the background. Result surfaces as a toast. Recommended for slow commands and `|llm` filters."
-                             : "Dismiss Cai immediately and run the prompt in the background. Result surfaces as a toast.")
-                            .font(.system(size: 10))
-                            .foregroundColor(.caiTextSecondary.opacity(0.6))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-            }
-
-            // Pin to top — applies to all types.
-            Toggle(isOn: $formPinned) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Pin to top")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.caiTextPrimary)
-                    Text("Show this action in the default list above the built-ins. Drag rows to reorder; pinned ones stay on top.")
-                        .font(.system(size: 10))
-                        .foregroundColor(.caiTextSecondary.opacity(0.6))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-
-            // Save / Cancel buttons
+            // Save / Cancel buttons. Save is the primary action; pinned
+            // bottom-right per macOS HIG. ⌘⏎ saves; Esc cancels (also dismisses
+            // via the × in the title row). No discard prompt — re-opening the
+            // editor restores the saved state.
             HStack(spacing: 8) {
-                Button("Cancel") {
-                    cancelForm()
-                }
-                .buttonStyle(.plain)
-                // ESC dismisses the form (in-place) instead of bubbling up to
-                // the window-level cancel that would close the whole shortcuts
-                // window. macOS-native: `.cancelAction` is the standard ESC
-                // role for a "cancel/dismiss this dialog" button.
-                .keyboardShortcut(.cancelAction)
-                .font(.system(size: 12))
-                .foregroundColor(.caiTextSecondary)
-
                 Spacer()
+                Button("Cancel") { cancelForm() }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                    .font(.system(size: 12))
+                    .foregroundColor(.caiTextSecondary)
 
                 Button(action: {
                     saveForm(isNew: isNew, shortcutId: shortcutId)
                 }) {
-                    Text(isNew ? "Add" : "Save")
+                    Text(isNew ? "Add Action" : "Save")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 14)
                         .padding(.vertical, 5)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(formName.isEmpty || formValue.isEmpty
+                                .fill(saveDisabled
                                       ? Color.caiPrimary.opacity(0.4)
                                       : Color.caiPrimary)
                         )
                 }
                 .buttonStyle(.plain)
-                // ⌘⏎ saves — pairs with ESC for cancel. Standard macOS form pattern.
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(formName.isEmpty || formValue.isEmpty)
+                .disabled(saveDisabled)
             }
         }
-        .padding(12)
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 10)
                 .fill(Color.caiSurface.opacity(0.4))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(Color.caiDivider.opacity(0.3), lineWidth: 0.5)
         )
         // ESC dismisses the form in-place (back to the shortcuts list, not
@@ -660,6 +531,302 @@ struct ShortcutsManagementView: View {
             }
         }
         .padding(.horizontal, 8)
+    }
+
+    // MARK: - Form sub-views
+
+    /// Title row: pin (left) | H1 title (placeholder + click-to-edit) | ⋯ menu | × close.
+    /// Pin lives on the LEFT to match the action-list row pattern (pin
+    /// always leads the title — established in `ClipboardHistoryView` and
+    /// `shortcutRow` above).
+    @ViewBuilder
+    private func titleRow(isNew: Bool, shortcutId: UUID?) -> some View {
+        HStack(spacing: 8) {
+            // Pin button (left). Reuses the same visual pattern as
+            // `shortcutRow`: filled indigo when pinned, outlined grey when not.
+            Button(action: { formPinned.toggle() }) {
+                Image(systemName: formPinned ? "pin.fill" : "pin")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(formPinned ? .caiPrimary : .caiTextSecondary.opacity(0.5))
+                    .frame(width: 24, height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(formPinned ? Color.caiPrimary.opacity(0.12) : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(formPinned ? "Unpin from top" : "Pin to top of action list")
+
+            // H1 title — placeholder if empty, click anywhere to edit.
+            // No "Name" label; the placeholder + size signals what the field is.
+            TextField("Untitled action", text: $formName)
+                .textFieldStyle(.plain)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.caiTextPrimary)
+
+            Spacer()
+
+            // ⋯ menu — only when editing existing (Duplicate / Share / Delete
+            // make no sense for an action that doesn't exist yet).
+            if !isNew, let id = shortcutId {
+                optionsMenu(shortcutId: id)
+            }
+
+            // × cancel — top-right, Apple HIG. Same as Cancel button (no
+            // discard prompt — re-opening restores saved state).
+            Button(action: { cancelForm() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary.opacity(0.7))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("Close without saving")
+        }
+    }
+
+    /// Type picker — segmented control without a label. The picker IS the
+    /// type selector; the segments themselves communicate intent.
+    private var typePicker: some View {
+        Picker("", selection: $formType) {
+            ForEach(CaiShortcut.ShortcutType.allCases, id: \.self) { type in
+                Text(type.label).tag(type)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+    }
+
+    /// The action's value field — Prompt / URL / Shell. Auto-grows via
+    /// `TextField(axis: .vertical)`. Monospaced for URL + Shell.
+    /// Inline label includes a `(?)` help button (popover with full
+    /// explanation) and, for Shell, a short inline warning.
+    @ViewBuilder
+    private var valueField: some View {
+        let label: String = {
+            switch formType {
+            case .prompt: return "Prompt"
+            case .url: return "URL template"
+            case .shell: return "Shell command"
+            }
+        }()
+        let useMonospaced = formType == .url || formType == .shell
+
+        VStack(alignment: .leading, spacing: 6) {
+            // Label row: label + (?) help + inline warning (Shell only).
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary)
+
+                helpButton(field: .value, helpText: valueFieldHelpText)
+
+                if formType == .shell {
+                    Spacer().frame(width: 4)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.caiError)
+                    Text("Only use commands you trust")
+                        .font(.system(size: 10))
+                        .foregroundColor(.caiError)
+                }
+
+                Spacer()
+            }
+
+            // Auto-growing input. `TextField(axis: .vertical)` (macOS 14+)
+            // gives us a multi-line editor that doesn't intercept ⌘⏎ at the
+            // responder chain (unlike TextEditor — which is why the LLM
+            // popover also uses TextField vertical).
+            TextField(
+                formType.placeholder,
+                text: $formValue,
+                axis: .vertical
+            )
+            .lineLimit(2...8)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12, design: useMonospaced ? .monospaced : .default))
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+            )
+        }
+    }
+
+    /// Bottom chip row — collapsible "Then run" + Background + Auto-replace.
+    /// Each chip flips visual state (outlined → indigo-filled) on activation.
+    /// "Then run" expands inline to the chip editor when clicked or when the
+    /// chain has any steps (auto-expand on edit).
+    @ViewBuilder
+    private func chipRow(shortcutId: UUID?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                // Then run — neutral disclosure chip (NOT a toggle). Distinct
+                // visual language from the on/off chips to its right —
+                // `caiSurface` background like `DestinationChip` in the result
+                // view. Chevron flips on expansion. Counter shows step count
+                // when chain is non-empty.
+                ChipButton(
+                    label: thenRunLabel,
+                    icon: thenRunExpanded || !formNext.isEmpty ? "chevron.down" : "chevron.right",
+                    isActive: thenRunExpanded || !formNext.isEmpty,
+                    tooltip: "Chain follow-up actions",
+                    action: { thenRunExpanded.toggle() }
+                )
+
+                // Silent — boolean toggle. Skips the result view; the menu
+                // bar pulses + a terminal toast surfaces on completion.
+                if formType == .shell || formType == .prompt {
+                    ChipToggle(
+                        label: "Silent",
+                        icon: "eye.slash",
+                        isOn: formRunInBackground,
+                        tooltip: "Skip the result view; toast only",
+                        action: { formRunInBackground.toggle() }
+                    )
+                }
+
+                // Auto-replace — boolean toggle (prompt only).
+                if formType == .prompt {
+                    ChipToggle(
+                        label: "Auto-replace",
+                        icon: "return",
+                        isOn: formAutoReplace,
+                        tooltip: "Paste response over selection, skip review",
+                        action: { formAutoReplace.toggle() }
+                    )
+                }
+
+                Spacer()
+            }
+
+            // Then-run chip editor — visible only when expanded or chain non-empty.
+            if thenRunExpanded || !formNext.isEmpty {
+                ChainStepsTokenField(
+                    steps: $formNext,
+                    availableCaiActionNames: availableChainNames(excluding: shortcutId),
+                    placeholder: "Search actions to add..."
+                )
+            }
+        }
+    }
+
+    /// Label for the "Then run" chip — shows step count when chain is non-empty.
+    private var thenRunLabel: String {
+        if formNext.isEmpty { return "Then run" }
+        return "Then run · \(formNext.count)"
+    }
+
+    /// `(?)` help button — opens a small popover with the full explanation.
+    /// Same pattern Apple uses in System Settings.
+    @ViewBuilder
+    private func helpButton(field: HelpField, helpText: String) -> some View {
+        Button(action: {
+            openHelpPopover = (openHelpPopover == field) ? nil : field
+        }) {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 10, weight: .regular))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .popover(
+            isPresented: Binding(
+                get: { openHelpPopover == field },
+                set: { if !$0 { openHelpPopover = nil } }
+            ),
+            arrowEdge: .top
+        ) {
+            Text(helpText)
+                .font(.system(size: 11))
+                .foregroundColor(.caiTextPrimary)
+                .padding(10)
+                .frame(maxWidth: 280, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Per-type help text for the value field's `(?)` popover.
+    private var valueFieldHelpText: String {
+        switch formType {
+        case .prompt:
+            return "The instruction sent to the LLM with your clipboard text. Be specific about format and what to preserve."
+        case .url:
+            return "URL template — use %s where the clipboard text should be inserted (auto-encoded). Example: https://reddit.com/search?q=%s"
+        case .shell:
+            return "Shell command run via /bin/zsh -c. Use {{result}} where the clipboard text should be inserted (auto-quoted). Text is also passed via stdin."
+        }
+    }
+
+    /// `⋯` overflow menu — Duplicate / Share / Delete. Only shown when
+    /// editing an existing action (these operations don't apply to a new,
+    /// unsaved action).
+    @ViewBuilder
+    private func optionsMenu(shortcutId: UUID) -> some View {
+        Menu {
+            Button(action: { duplicateShortcut(shortcutId: shortcutId) }) {
+                Label("Duplicate", systemImage: "plus.square.on.square")
+            }
+            if let shortcut = settings.shortcuts.first(where: { $0.id == shortcutId }) {
+                Button(action: { shareShortcutAsExtension(shortcut) }) {
+                    Label("Share as Extension", systemImage: "square.and.arrow.up")
+                }
+            }
+            Divider()
+            Button(role: .destructive, action: { deleteShortcut(shortcutId: shortcutId) }) {
+                Label("Delete", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.caiTextSecondary.opacity(0.7))
+                .frame(width: 24, height: 24)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 24)
+        .help("More options")
+    }
+
+    /// True when Save should be disabled (missing required fields).
+    private var saveDisabled: Bool {
+        formName.trimmingCharacters(in: .whitespaces).isEmpty
+            || formValue.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Duplicate the shortcut — copy all fields, append " (Copy)" to the
+    /// name, insert into settings. Closes the editor; user can immediately
+    /// open the duplicate to rename.
+    private func duplicateShortcut(shortcutId: UUID) {
+        guard let original = settings.shortcuts.first(where: { $0.id == shortcutId }) else { return }
+        let copy = CaiShortcut(
+            name: "\(original.name) (Copy)",
+            type: original.type,
+            value: original.value,
+            autoReplaceSelection: original.autoReplaceSelection,
+            pinned: false,  // duplicates start unpinned to avoid stomping the user's action list
+            runInBackground: original.runInBackground,
+            next: original.next
+        )
+        withAnimation(.easeInOut(duration: 0.15)) {
+            var working = settings.shortcuts
+            working.append(copy)
+            settings.shortcuts = working.filter(\.pinned) + working.filter { !$0.pinned }
+        }
+        cancelForm()
+    }
+
+    /// Delete the shortcut. Closes the editor.
+    private func deleteShortcut(shortcutId: UUID) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            settings.shortcuts.removeAll { $0.id == shortcutId }
+        }
+        cancelForm()
     }
 
     // MARK: - Form Helpers
@@ -741,6 +908,8 @@ struct ShortcutsManagementView: View {
         formPinned = false
         formRunInBackground = false
         formNext = []
+        thenRunExpanded = false
+        openHelpPopover = nil
         lastFormValueHadLLM = false
     }
 
@@ -782,5 +951,142 @@ struct ShortcutsManagementView: View {
             object: nil,
             userInfo: ["message": "Extension YAML copied"]
         )
+    }
+}
+
+// MARK: - ChipToggle
+//
+// Linear-style chip that toggles between "outlined" (off) and
+// "indigo-filled" (on) states. Used in the action editor for Pin /
+// Background / Auto-replace / "Then run" affordances.
+//
+// Visual rule (locked in DESIGN.md): outlined when off, `caiPrimary` at
+// 12% opacity fill + `caiPrimary` border + `caiPrimary` icon/label when on.
+// Hover highlights with a subtle wash, click flips state. Tooltip on hover
+// surfaces a short (under 8 words) explanation.
+
+private struct ChipToggle: View {
+    let label: String
+    let icon: String
+    let isOn: Bool
+    let tooltip: String
+    let action: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(isOn ? .caiPrimary : .caiTextSecondary)
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(isOn ? .caiPrimary : .caiTextSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(backgroundFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(borderColor, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+
+    private var backgroundFill: Color {
+        // Visible base even when off — matches `DestinationChip` and
+        // `ChipButton` so the off-state still reads as a chip (not as
+        // floating text). Hover brightens; on flips to indigo.
+        if isOn { return Color.caiPrimary.opacity(0.12) }
+        if isHovered { return Color.caiSurface.opacity(0.8) }
+        return Color.caiSurface.opacity(0.5)
+    }
+
+    private var borderColor: Color {
+        if isOn { return Color.caiPrimary.opacity(0.4) }
+        return Color(nsColor: .separatorColor).opacity(0.5)
+    }
+}
+
+// MARK: - ChipButton
+//
+// Neutral disclosure / action chip. Distinct from `ChipToggle` (on/off
+// boolean) — this one is for "click to do something" affordances like the
+// "Then run" expand/collapse chip in the action editor.
+//
+// Visual rule: matches `DestinationChip` (used in the result view's "Send
+// to..." chips) — `caiSurface.opacity(0.5)` neutral background, no
+// indigo unless `isActive` is true (e.g., the chain is non-empty so the
+// chip carries a state). Hover wash brightens. Distinct from the bold
+// indigo "on" state of `ChipToggle` so the user reads the two as
+// different categories of UI element.
+
+private struct ChipButton: View {
+    let label: String
+    let icon: String
+    /// Whether the chip's underlying disclosure is "engaged" (e.g., chain
+    /// has steps so the chip carries a count). Brightens label/icon to
+    /// `caiTextPrimary` and adds a subtle indigo tint to the background.
+    /// Distinct from `ChipToggle`'s bold "on" state.
+    let isActive: Bool
+    let tooltip: String
+    let action: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(isActive ? .caiPrimary : .caiTextSecondary.opacity(0.7))
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(isActive ? .caiTextPrimary : .caiTextSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(backgroundFill)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+
+    private var backgroundFill: Color {
+        if isActive {
+            return isHovered
+                ? Color.caiPrimary.opacity(0.10)
+                : Color.caiPrimary.opacity(0.06)
+        }
+        return isHovered
+            ? Color.caiSurface.opacity(0.8)
+            : Color.caiSurface.opacity(0.5)
     }
 }

@@ -45,9 +45,11 @@ struct ChainStepsTokenField: View {
     @State private var editingDraftDirective: String = ""
     @FocusState private var fieldIsFocused: Bool
 
-    /// Cap on dropdown rows per section (after filtering). Keeps the popover
-    /// scannable on machines with many shortcuts/Apple Shortcuts.
-    private static let maxRowsPerSection = 6
+    /// Max height of the suggestions dropdown — beyond this it scrolls
+    /// internally (matches Notion's slash-command menu behavior). Sections
+    /// are NOT capped per-section; users with 30 Apple Shortcuts can still
+    /// see all of them via scrolling.
+    private static let dropdownMaxHeight: CGFloat = 280
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -83,6 +85,22 @@ struct ChainStepsTokenField: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { fieldIsFocused = true }
+        // ONE popover for the whole row — anchored by SwiftUI to where the
+        // tap happened. Per-chip popovers were creating N NSPopover instances
+        // and the first open was noticeably slow.
+        .popover(
+            isPresented: Binding(
+                get: { editingStepIndex != nil },
+                set: { if !$0 { commitLLMEdit() } }
+            ),
+            arrowEdge: .top
+        ) {
+            LLMEditPopover(
+                directive: $editingDraftDirective,
+                onCommit: commitLLMEdit,
+                onCancel: cancelLLMEdit
+            )
+        }
     }
 
     @ViewBuilder
@@ -112,7 +130,7 @@ struct ChainStepsTokenField: View {
                         .font(.system(size: 11, weight: .medium).italic())
                         .foregroundColor(.caiTextPrimary)
                         .lineLimit(1)
-                    removeButton(at: index, label: "inline LLM step")
+                    removeButton(at: index, label: "LLM step")
                 }
             }
             .help(directive)
@@ -120,19 +138,9 @@ struct ChainStepsTokenField: View {
                 editingDraftDirective = directive
                 editingStepIndex = index
             }
-            .popover(
-                isPresented: Binding(
-                    get: { editingStepIndex == index },
-                    set: { if !$0 { commitInlineLLMEdit() } }
-                ),
-                arrowEdge: .top
-            ) {
-                InlineLLMEditPopover(
-                    directive: $editingDraftDirective,
-                    onCommit: commitInlineLLMEdit,
-                    onCancel: cancelInlineLLMEdit
-                )
-            }
+            // NOTE: popover lives at the parent (chipRow) attached to a
+            // single sentinel — anchoring it per-chip would create N
+            // NSPopover instances and made the first open noticeably slow.
 
         case .appleShortcut(let name):
             chipShell {
@@ -226,25 +234,32 @@ struct ChainStepsTokenField: View {
     }
 
     // MARK: - Suggestions dropdown
+    //
+    // Internal `ScrollView` so the dropdown scrolls inside its own bounds —
+    // long lists (e.g. 30 Apple Shortcuts) don't push the surrounding form
+    // down. Matches Notion's slash-command menu pattern.
 
     private var suggestionsDropdown: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(visibleSections.enumerated()), id: \.offset) { sectionIndex, section in
-                if sectionIndex > 0 {
-                    Divider().padding(.vertical, 2)
-                }
-                sectionHeader(section.title)
-                ForEach(Array(section.items.enumerated()), id: \.offset) { _, item in
-                    let flatIndex = flatVisibleItems.firstIndex { $0 == item } ?? -1
-                    DropdownRow(
-                        item: item,
-                        isSelected: flatIndex == selectedIndex,
-                        onTap: { pick(item) }
-                    )
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(visibleSections.enumerated()), id: \.offset) { sectionIndex, section in
+                    if sectionIndex > 0 {
+                        Divider().padding(.vertical, 2)
+                    }
+                    sectionHeader(section.title)
+                    ForEach(Array(section.items.enumerated()), id: \.offset) { _, item in
+                        let flatIndex = flatVisibleItems.firstIndex { $0 == item } ?? -1
+                        DropdownRow(
+                            item: item,
+                            isSelected: flatIndex == selectedIndex,
+                            onTap: { pick(item) }
+                        )
+                    }
                 }
             }
+            .padding(.vertical, 3)
         }
-        .padding(.vertical, 3)
+        .frame(maxHeight: Self.dropdownMaxHeight)
         .background(
             RoundedRectangle(cornerRadius: 5)
                 .fill(Color(nsColor: .textBackgroundColor))
@@ -283,8 +298,18 @@ struct ChainStepsTokenField: View {
 
     /// The dropdown's sections in display order, with each section's items
     /// already filtered against `inputText` and the current `steps` list.
+    /// Order: Custom step (LLM) → Cai Actions → Apple Shortcuts. Custom is
+    /// first because adding an LLM transform is the most common new-step
+    /// composition; Cai Actions next because they're already-saved building
+    /// blocks; Apple Shortcuts last because users typically have many and
+    /// scroll-to-find them.
     private var visibleSections: [DropdownSection] {
         var sections: [DropdownSection] = []
+
+        sections.append(DropdownSection(
+            title: "Custom step",
+            items: [.inlineLLM(initialDirective: inputText.trimmingCharacters(in: .whitespaces))]
+        ))
 
         let cai = filteredCaiActions
         if !cai.isEmpty {
@@ -295,12 +320,6 @@ struct ChainStepsTokenField: View {
         if !shortcuts.isEmpty {
             sections.append(DropdownSection(title: "Apple Shortcuts", items: shortcuts))
         }
-
-        // Inline LLM is always offered — bottom of the dropdown.
-        sections.append(DropdownSection(
-            title: "Add a custom step",
-            items: [.inlineLLM(initialDirective: inputText.trimmingCharacters(in: .whitespaces))]
-        ))
 
         return sections
     }
@@ -320,7 +339,6 @@ struct ChainStepsTokenField: View {
         return availableCaiActionNames
             .filter { !alreadyUsed.contains($0.lowercased()) }
             .filter { matches($0, query: q) }
-            .prefix(Self.maxRowsPerSection)
             .map { .caiAction(name: $0) }
     }
 
@@ -333,7 +351,6 @@ struct ChainStepsTokenField: View {
         return appleShortcuts
             .filter { !alreadyUsed.contains($0.lowercased()) }
             .filter { matches($0, query: q) }
-            .prefix(Self.maxRowsPerSection)
             .map { .appleShortcut(name: $0) }
     }
 
@@ -387,16 +404,16 @@ struct ChainStepsTokenField: View {
         steps.remove(at: index)
     }
 
-    // MARK: - Inline LLM popover lifecycle
+    // MARK: - LLM popover lifecycle
 
-    private func commitInlineLLMEdit() {
+    private func commitLLMEdit() {
         guard let index = editingStepIndex, index >= 0, index < steps.count else {
             editingStepIndex = nil
             return
         }
         let trimmed = editingDraftDirective.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            // Auto-remove empty inline LLM chips — friction-free.
+            // Auto-remove empty LLM chips — friction-free.
             steps.remove(at: index)
         } else {
             steps[index] = .inlineLLM(directive: trimmed)
@@ -405,7 +422,7 @@ struct ChainStepsTokenField: View {
         editingDraftDirective = ""
     }
 
-    private func cancelInlineLLMEdit() {
+    private func cancelLLMEdit() {
         // If the chip was just added (empty directive at construction), and
         // the user cancels, remove the chip. If they had a prior non-empty
         // directive (editing existing), preserve it.
@@ -496,7 +513,7 @@ private struct DropdownRow: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.caiTextPrimary)
         case .inlineLLM(let directive):
-            Text(directive.isEmpty ? "Inline LLM step" : "Use as prompt")
+            Text(directive.isEmpty ? "LLM step" : "Use as LLM prompt")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.caiTextPrimary)
         }
