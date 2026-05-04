@@ -14,15 +14,12 @@ struct OutputDestination: Codable, Identifiable, Equatable {
     var isBuiltIn: Bool                 // true for Mail, Notes, Reminders
     var showInActionList: Bool          // also show as direct-route action (no LLM step)
     var setupFields: [SetupField]       // user-configurable values (API keys, etc.)
-    /// Names of additional actions (shortcuts or destinations) to run after
-    /// this one completes. Sequential pipe — each step's output becomes the
-    /// next step's `{{result}}`. NOT routed through the system clipboard:
-    /// the chain executor uses an in-memory pipe so the user can copy other
-    /// text mid-chain without breaking the flow.
-    /// Empty array means "no chaining" (the default). Lookup is by `name`,
-    /// preferring shortcuts over destinations on collision.
+    /// Chain steps to run after this destination's side-effect completes.
+    /// Pipe value passes through (tee semantics — destinations don't consume
+    /// the pipe). Steps can be Cai actions, inline LLM directives, or Apple
+    /// Shortcuts — see `ChainStep`. Empty means no chaining (default).
     /// Cycle detection + max-depth-10 guard the executor against runaway loops.
-    var next: [String]
+    var next: [ChainStep]
 
     init(
         id: UUID = UUID(),
@@ -33,7 +30,7 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         isBuiltIn: Bool = false,
         showInActionList: Bool = false,
         setupFields: [SetupField] = [],
-        next: [String] = []
+        next: [ChainStep] = []
     ) {
         self.id = id
         self.name = name
@@ -59,7 +56,7 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         self.isBuiltIn = try c.decode(Bool.self, forKey: .isBuiltIn)
         self.showInActionList = try c.decode(Bool.self, forKey: .showInActionList)
         self.setupFields = try c.decode([SetupField].self, forKey: .setupFields)
-        self.next = try c.decodeIfPresent([String].self, forKey: .next) ?? []
+        self.next = try c.decodeIfPresent([ChainStep].self, forKey: .next) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {

@@ -25,15 +25,15 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
     /// The shortcut editor auto-enables this flag on transition from "no `|llm`"
     /// to "has `|llm`" in the template (one-shot heuristic; user can override).
     var runInBackground: Bool
-    /// Names of additional actions (shortcuts or destinations) to run after
-    /// this one completes. Sequential pipe — each action's output becomes the
-    /// next action's `{{result}}`. NOT routed through the system clipboard:
-    /// the chain executor uses an in-memory pipe so the user can copy other
-    /// text mid-chain without breaking the flow.
-    /// Empty array means "no chaining" (the default). Lookup is by `name`,
-    /// preferring shortcuts over destinations on collision.
-    /// Cycle detection + max-depth-10 guard the executor against runaway loops.
-    var next: [String]
+    /// Chain steps to run after this action completes. Sequential pipe —
+    /// each step's output becomes the next step's `{{result}}`. NOT routed
+    /// through the system clipboard: the chain executor uses an in-memory
+    /// pipe so the user can copy other text mid-chain without breaking the
+    /// flow. Empty array means "no chaining" (the default).
+    /// Steps can be Cai actions (by name), inline LLM directives, or Apple
+    /// Shortcuts (by name) — see `ChainStep`. Cycle detection + max-depth-10
+    /// guard the executor against runaway loops.
+    var next: [ChainStep]
 
     enum ShortcutType: String, Codable, CaseIterable {
         case prompt
@@ -68,7 +68,7 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         }
     }
 
-    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false, runInBackground: Bool = false, next: [String] = []) {
+    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false, runInBackground: Bool = false, next: [ChainStep] = []) {
         self.id = id
         self.name = name
         self.type = type
@@ -90,7 +90,7 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         self.autoReplaceSelection = try c.decodeIfPresent(Bool.self, forKey: .autoReplaceSelection) ?? false
         self.pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         self.runInBackground = try c.decodeIfPresent(Bool.self, forKey: .runInBackground) ?? false
-        self.next = try c.decodeIfPresent([String].self, forKey: .next) ?? []
+        self.next = try c.decodeIfPresent([ChainStep].self, forKey: .next) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {

@@ -74,6 +74,11 @@ final class ChainExecutor {
         case tooDeep(maxDepth: Int)
         case stepFailed(action: String, underlying: Error)
         case unsupportedActionType(String)
+        /// Step is structurally invalid (e.g., inline LLM with empty
+        /// directive). Editor strips these on commit so this should be
+        /// unreachable from normal use; thrown as a defensive guard for
+        /// hand-edited storage or programmatic mistakes.
+        case invalidStep(String)
 
         var errorDescription: String? {
             switch self {
@@ -88,6 +93,8 @@ final class ChainExecutor {
                 return "Step '\(action)' failed: \(underlying.localizedDescription)"
             case .unsupportedActionType(let type):
                 return "Action type '\(type)' can't be used in a chain (v1)."
+            case .invalidStep(let reason):
+                return reason
             }
         }
     }
@@ -110,7 +117,7 @@ final class ChainExecutor {
             }
         }
 
-        var next: [String] {
+        var next: [ChainStep] {
             switch self {
             case .shortcut(let s): return s.next
             case .destination(let d): return d.next
@@ -127,13 +134,13 @@ final class ChainExecutor {
     /// `BackgroundTaskTracker.shared`). Surfaces a toast on completion.
     ///
     /// - Parameters:
-    ///   - slugs: ordered list of action names to run.
+    ///   - steps: ordered list of `ChainStep` values to run.
     ///   - initialInput: the starting pipe value (typically the user's
     ///     clipboard at chain start).
     ///   - sourceBundleId: bundle ID of the app the user copied from; forwarded
-    ///     to `|llm` filters and Context Snippet lookups.
+    ///     to `|llm` filters, inline LLM steps, and Context Snippet lookups.
     func runChain(
-        _ slugs: [String],
+        _ steps: [ChainStep],
         initialInput: String,
         sourceBundleId: String?
     ) async {
@@ -142,19 +149,21 @@ final class ChainExecutor {
 
         do {
             let finalOutput = try await execute(
-                slugs: slugs,
+                steps: steps,
                 pipe: initialInput,
                 sourceBundleId: sourceBundleId,
                 visited: [],
                 depth: 0
             )
-            // Toast with last step's name + brief output snippet (trimmed,
-            // first 80 chars) so the user knows the chain completed.
+            // Toast with last step's label + brief output snippet (trimmed,
+            // first 80 chars) so the user knows the chain completed. Inline
+            // LLM steps surface their directive; this is fine — the chain
+            // user just composed it, so they recognize it.
             let snippet = String(finalOutput.prefix(80))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let lastStepName = slugs.last ?? "chain"
+            let lastStepLabel = steps.last?.displayLabel ?? "chain"
             let message = snippet.isEmpty
-                ? "Done — \(lastStepName)"
+                ? "Done — \(lastStepLabel)"
                 : snippet
             NotificationCenter.default.post(
                 name: .caiShowToast,
@@ -172,11 +181,18 @@ final class ChainExecutor {
 
     // MARK: - Recursive executor
 
-    /// Executes the slugs sequentially. Returns the final pipe value.
-    /// Each step also runs ITS OWN `next:` chain before returning, so a chain
-    /// of [A→B] where A also has `next: [Z]` produces A → Z → B (depth-first).
+    /// Executes the steps sequentially. Returns the final pipe value.
+    /// Each `.action`-typed step also runs ITS OWN `next:` chain before
+    /// moving on, so a chain of [A→B] where A also has `next: [Z]` produces
+    /// A → Z → B (depth-first). Inline LLM and Apple Shortcut steps don't
+    /// have their own `next:` (they're leaf step types).
+    ///
+    /// Cycle detection only applies to `.action` steps, since only named
+    /// actions can recurse via their own `next:`. Inline LLM directives and
+    /// Apple Shortcuts can't reference back into a Cai chain by name, so
+    /// they can't form cycles structurally.
     private func execute(
-        slugs: [String],
+        steps: [ChainStep],
         pipe: String,
         sourceBundleId: String?,
         visited: Set<String>,
@@ -185,38 +201,46 @@ final class ChainExecutor {
         var currentPipe = pipe
         var currentVisited = visited
 
-        for slug in slugs {
+        for step in steps {
             if depth >= Self.maxDepth {
                 throw ChainError.tooDeep(maxDepth: Self.maxDepth)
             }
-            if currentVisited.contains(slug) {
-                throw ChainError.cycle(detected: slug, path: Array(currentVisited))
-            }
-            guard let resolved = resolve(slug) else {
-                throw ChainError.unknownAction(slug)
-            }
-            currentVisited.insert(slug)
 
-            // Run the step.
+            // Cycle check applies only to named actions (the recursive case).
+            if case .action(let name) = step {
+                if currentVisited.contains(name) {
+                    throw ChainError.cycle(detected: name, path: Array(currentVisited))
+                }
+                currentVisited.insert(name)
+            }
+
+            // Dispatch the step.
             let stepOutput: String
             do {
-                stepOutput = try await runOne(
-                    resolved,
+                stepOutput = try await runStep(
+                    step,
                     input: currentPipe,
                     sourceBundleId: sourceBundleId
                 )
+            } catch let chainError as ChainError {
+                // Don't double-wrap structural chain errors (unknownAction,
+                // invalidStep, etc.) — they're already self-describing.
+                // Only execution failures (NSError from a shell command, an
+                // LLM timeout, etc.) get wrapped with the step name context.
+                throw chainError
             } catch {
-                throw ChainError.stepFailed(action: resolved.name, underlying: error)
+                throw ChainError.stepFailed(action: step.displayLabel, underlying: error)
             }
 
             currentPipe = stepOutput
 
-            // Recurse into this action's own `next:` before moving on to the
-            // next sibling slug. Depth-first preserves the natural reading of
-            // "A says: after me, run X. Then come back and run B."
-            if !resolved.next.isEmpty {
+            // Recurse into the action's own `next:` (only `.action` steps
+            // have one; inline LLM and Apple Shortcut steps are leaves).
+            if case .action(let name) = step,
+               let resolved = resolve(name),
+               !resolved.next.isEmpty {
                 currentPipe = try await execute(
-                    slugs: resolved.next,
+                    steps: resolved.next,
                     pipe: currentPipe,
                     sourceBundleId: sourceBundleId,
                     visited: currentVisited,
@@ -251,12 +275,12 @@ final class ChainExecutor {
 
     #if DEBUG
     func executeForTesting(
-        slugs: [String],
+        steps: [ChainStep],
         initialInput: String,
         sourceBundleId: String? = nil
     ) async throws -> String {
         try await execute(
-            slugs: slugs,
+            steps: steps,
             pipe: initialInput,
             sourceBundleId: sourceBundleId,
             visited: [],
@@ -267,7 +291,35 @@ final class ChainExecutor {
 
     // MARK: - Single-step dispatch
 
-    private func runOne(
+    private func runStep(
+        _ step: ChainStep,
+        input: String,
+        sourceBundleId: String?
+    ) async throws -> String {
+        switch step {
+        case .action(let name):
+            guard let resolved = resolve(name) else {
+                throw ChainError.unknownAction(name)
+            }
+            return try await runAction(resolved, input: input, sourceBundleId: sourceBundleId)
+
+        case .inlineLLM(let directive):
+            // Empty directives shouldn't reach here — the editor strips them
+            // on commit (see `ChainStepsEditor`). If one slips through (e.g.,
+            // hand-edited storage), throw an error rather than silently
+            // calling the LLM with no instruction (which produces garbage).
+            let trimmed = directive.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw ChainError.invalidStep("Inline LLM step has no directive")
+            }
+            return try await runInlineLLM(directive: trimmed, input: input, sourceBundleId: sourceBundleId)
+
+        case .appleShortcut(let name):
+            return try await runAppleShortcut(name: name, input: input)
+        }
+    }
+
+    private func runAction(
         _ action: ResolvedAction,
         input: String,
         sourceBundleId: String?
@@ -300,6 +352,107 @@ final class ChainExecutor {
             // content. See the doc comment at the top of the file.
             return input
         }
+    }
+
+    // MARK: - Inline LLM step
+    //
+    // A directive is treated as the "user prompt" for one-shot LLM call. The
+    // chain pipe value is the "context" being transformed. Builds messages
+    // via `LLMService.buildMessages` so About You + per-app Context Snippets
+    // are injected the same way prompt-type shortcuts get them.
+
+    private func runInlineLLM(
+        directive: String,
+        input: String,
+        sourceBundleId: String?
+    ) async throws -> String {
+        let aboutYou = CaiSettings.shared.aboutYou
+        let snippet = ContextSnippetsManager.shared.snippet(forBundleId: sourceBundleId)
+
+        // System prompt frames the LLM to "do the directive on the input,
+        // emit only the result". Same shape as `runPrompt` so chain-composed
+        // and saved-prompt-type behave consistently.
+        let systemPrompt = """
+            You are a text transformation step in a pipeline. Apply the user's \
+            directive to the input text and output ONLY the transformed result. \
+            No preamble, no explanations, no quotes around the output. Plain \
+            text, no markdown.
+
+            Directive: \(directive)
+            """
+
+        let messages = LLMService.buildMessages(
+            systemPrompt: systemPrompt,
+            userPrompt: input,
+            aboutYou: aboutYou,
+            snippet: snippet
+        )
+
+        let response = try await LLMService.shared.generateWithMessages(messages)
+        return response.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Apple Shortcut step
+    //
+    // Spawns `/usr/bin/shortcuts run "Name"` with the chain pipe value as
+    // stdin. Apple Shortcuts that include a "Receive Input from Quick
+    // Action" step consume the stdin; ones that don't silently ignore it.
+    // Stdout flows back into the chain pipe.
+    //
+    // 30s timeout (shorter than shell's 60s) — Shortcuts that need longer
+    // are typically network-bound and the user is better served by chaining
+    // via a shell action with an explicit timeout. Documented as a known
+    // limitation in `_docs/integrations/APPLE-SHORTCUTS.md`.
+
+    private func runAppleShortcut(name: String, input: String) async throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+        process.arguments = ["run", name]
+
+        let inputPipe = Pipe()
+        inputPipe.fileHandleForWriting.write(input.data(using: .utf8) ?? Data())
+        inputPipe.fileHandleForWriting.closeFile()
+        process.standardInput = inputPipe
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        try process.run()
+
+        let exitTask = Task.detached { process.waitUntilExit() }
+        let timeoutTask = Task.detached {
+            try await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+            process.terminate()
+        }
+        await exitTask.value
+        timeoutTask.cancel()
+
+        if process.terminationReason == .uncaughtSignal {
+            throw NSError(domain: "Cai", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Apple Shortcut '\(name)' exceeded 30s and was stopped"
+            ])
+        }
+
+        let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        guard process.terminationStatus == 0 else {
+            // `shortcuts run` writes its errors to stderr (e.g. "No shortcut
+            // found with name 'Foo'"). Surface that verbatim — the user
+            // typically just typo'd the name.
+            let message = stderr.isEmpty
+                ? "Apple Shortcut '\(name)' failed (exit \(process.terminationStatus))"
+                : stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NSError(
+                domain: "Cai",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+
+        return stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Shell shortcut runner

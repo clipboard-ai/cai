@@ -15,12 +15,10 @@ struct DestinationsManagementView: View {
     @State private var formName: String = ""
     @State private var formTypeTag: String = "webhook"
     @State private var formShowInActionList: Bool = false
-    /// Names of follow-up actions to chain. Edited via `ChainStepsTokenField`
-    /// (NSTokenField wrapper) — chips with native autocomplete from the pool
-    /// of available shortcut + destination names. Lookup happens by name at
-    /// chain time in `ChainExecutor`; shortcuts win on collision with
-    /// destinations.
-    @State private var formNext: [String] = []
+    /// Chain steps to run after this destination's side-effect. Edited via
+    /// the `ChainStepsTokenField` chip editor — supports Cai actions (named),
+    /// inline LLM directives, and Apple Shortcuts.
+    @State private var formNext: [ChainStep] = []
 
     /// Pool of names available for chain autocomplete. All custom shortcuts +
     /// all output destinations except the one being edited (chaining to self
@@ -454,11 +452,11 @@ struct DestinationsManagementView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.caiTextSecondary)
                 ChainStepsTokenField(
-                    tokens: $formNext,
-                    availableNames: availableChainNames(excluding: destinationId),
+                    steps: $formNext,
+                    availableCaiActionNames: availableChainNames(excluding: destinationId),
                     placeholder: "Search actions to add..."
                 )
-                Text("Type to search; ⏎ or comma to add. Lookup is by name; shortcuts win on collision.")
+                Text("Type to search Cai actions, Apple Shortcuts, or add an inline LLM step. ⏎ to pick.")
                     .font(.system(size: 9))
                     .foregroundColor(.caiTextSecondary.opacity(0.6))
                     .fixedSize(horizontal: false, vertical: true)
@@ -694,10 +692,9 @@ struct DestinationsManagementView: View {
 
         let destType = buildDestinationType()
         // Token field already trims and drops empties — defensive re-filter
-        // in case a programmatic update slipped past it.
-        let nextSlugs = formNext
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        // Editor strips empty inline-LLM chips on commit, but defensively
+        // filter again in case a programmatic update slipped past it.
+        let nextSteps = formNext.filter { !$0.isEmpty }
 
         if isNew {
             let dest = OutputDestination(
@@ -708,7 +705,7 @@ struct DestinationsManagementView: View {
                 isBuiltIn: false,
                 showInActionList: formShowInActionList,
                 setupFields: formSetupFields,
-                next: nextSlugs
+                next: nextSteps
             )
             withAnimation(.easeInOut(duration: 0.15)) {
                 settings.outputDestinations.append(dest)
@@ -721,7 +718,7 @@ struct DestinationsManagementView: View {
                 settings.outputDestinations[index].type = destType
                 settings.outputDestinations[index].showInActionList = formShowInActionList
                 settings.outputDestinations[index].setupFields = formSetupFields
-                settings.outputDestinations[index].next = nextSlugs
+                settings.outputDestinations[index].next = nextSteps
             }
         }
 

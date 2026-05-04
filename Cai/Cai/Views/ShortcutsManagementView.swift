@@ -21,12 +21,12 @@ struct ShortcutsManagementView: View {
     @State private var formAutoReplace: Bool = false
     @State private var formPinned: Bool = false
     @State private var formRunInBackground: Bool = false
-    /// Names of follow-up actions to chain. Edited via `ChainStepsTokenField`
-    /// (NSTokenField wrapper) — chips with native autocomplete from the pool
-    /// of available shortcut + destination names. Lookup happens by name at
-    /// chain time in `ChainExecutor`; shortcuts win on collision with
-    /// destinations.
-    @State private var formNext: [String] = []
+    /// Chain steps to run after this action. Edited via the
+    /// `ChainStepsTokenField` chip editor — supports Cai actions (named),
+    /// inline LLM directives, and Apple Shortcuts. Lookup happens at chain
+    /// time in `ChainExecutor`; for `.action` steps, shortcuts win on
+    /// collision with destinations.
+    @State private var formNext: [ChainStep] = []
 
     /// Pool of names available for chain autocomplete. All custom shortcuts
     /// (excluding the one being edited, since chaining to self is a cycle)
@@ -524,8 +524,8 @@ struct ShortcutsManagementView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.caiTextSecondary)
                 ChainStepsTokenField(
-                    tokens: $formNext,
-                    availableNames: availableChainNames(excluding: shortcutId),
+                    steps: $formNext,
+                    availableCaiActionNames: availableChainNames(excluding: shortcutId),
                     placeholder: "Search actions to add..."
                 )
                 Text("Each step's output pipes into the next via {{result}}. Type to search; ⏎ or comma to add. Lookup is by name; shortcuts win on collision with destinations.")
@@ -686,11 +686,9 @@ struct ShortcutsManagementView: View {
         let autoReplace = formType == .prompt && formAutoReplace
         // Shell + prompt support background execution; URL drops it.
         let runInBackground = (formType == .shell || formType == .prompt) && formRunInBackground
-        // Token field already trims and drops empties — but defensively
-        // re-filter in case a programmatic update slipped past it.
-        let nextSlugs = formNext
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        // Editor strips empty inline-LLM chips on commit, but defensively
+        // filter again in case a programmatic update slipped past it.
+        let nextSteps = formNext.filter { !$0.isEmpty }
 
         if isNew {
             let shortcut = CaiShortcut(
@@ -700,7 +698,7 @@ struct ShortcutsManagementView: View {
                 autoReplaceSelection: autoReplace,
                 pinned: formPinned,
                 runInBackground: runInBackground,
-                next: nextSlugs
+                next: nextSteps
             )
             withAnimation(.easeInOut(duration: 0.15)) {
                 // Build the new ordered array in a local, then assign once so
@@ -722,7 +720,7 @@ struct ShortcutsManagementView: View {
                 copy[index].autoReplaceSelection = autoReplace
                 copy[index].pinned = formPinned
                 copy[index].runInBackground = runInBackground
-                copy[index].next = nextSlugs
+                copy[index].next = nextSteps
                 settings.shortcuts = copy.filter(\.pinned) + copy.filter { !$0.pinned }
             }
         }
