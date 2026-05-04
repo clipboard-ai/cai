@@ -15,10 +15,23 @@ struct DestinationsManagementView: View {
     @State private var formName: String = ""
     @State private var formTypeTag: String = "webhook"
     @State private var formShowInActionList: Bool = false
-    /// Comma-separated names of follow-up actions. Parsed into `[String]` on
-    /// save (trimmed, empties dropped). Lookup happens by name in
-    /// `ChainExecutor`; shortcuts win on collision with destinations.
-    @State private var formNext: String = ""
+    /// Names of follow-up actions to chain. Edited via `ChainStepsTokenField`
+    /// (NSTokenField wrapper) — chips with native autocomplete from the pool
+    /// of available shortcut + destination names. Lookup happens by name at
+    /// chain time in `ChainExecutor`; shortcuts win on collision with
+    /// destinations.
+    @State private var formNext: [String] = []
+
+    /// Pool of names available for chain autocomplete. All custom shortcuts +
+    /// all output destinations except the one being edited (chaining to self
+    /// is a cycle the executor would catch, but suggesting it is misleading).
+    private func availableChainNames(excluding excludeId: UUID?) -> [String] {
+        let shortcutNames = settings.shortcuts.map(\.name)
+        let destinationNames = settings.outputDestinations
+            .filter { $0.id != excludeId }
+            .map(\.name)
+        return shortcutNames + destinationNames
+    }
 
     // AppleScript
     @State private var formAppleScript: String = ""
@@ -70,6 +83,10 @@ struct DestinationsManagementView: View {
                 .background(Color.caiDivider)
 
             // Content
+            // ScrollViewReader lets us auto-scroll the editing/adding form into
+            // view so the screen doesn't appear to "jump" when content below
+            // the fold expands. Mirrors ShortcutsManagementView's pattern.
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 4) {
                     // Built-in destinations
@@ -96,6 +113,7 @@ struct DestinationsManagementView: View {
                     ForEach(settings.outputDestinations.filter { !$0.isBuiltIn }) { dest in
                         if editingDestinationId == dest.id {
                             destinationForm(isNew: false, destinationId: dest.id)
+                                .id(dest.id)  // ScrollViewReader anchor for editing
                         } else {
                             customRow(dest)
                         }
@@ -104,6 +122,7 @@ struct DestinationsManagementView: View {
                     // Add form
                     if isAddingNew {
                         destinationForm(isNew: true, destinationId: nil)
+                            .id("addNewDestination")  // ScrollViewReader anchor
                     }
 
                     if settings.outputDestinations.filter({ !$0.isBuiltIn }).isEmpty && !isAddingNew {
@@ -149,6 +168,22 @@ struct DestinationsManagementView: View {
                 }
                 .padding(.vertical, 8)
             }
+            // Auto-scroll when entering add or edit mode so the form
+            // doesn't render below the fold and require manual scroll.
+            // Animated to match the form's open transition.
+            .onChange(of: isAddingNew) { _, isAdding in
+                guard isAdding else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo("addNewDestination", anchor: .top)
+                }
+            }
+            .onChange(of: editingDestinationId) { _, newId in
+                guard let id = newId else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(id, anchor: .top)
+                }
+            }
+            }  // end ScrollViewReader
             Spacer(minLength: 0)
 
             Divider()
@@ -412,15 +447,18 @@ struct DestinationsManagementView: View {
             Toggle("Show in action list", isOn: $formShowInActionList)
                 .font(.system(size: 11))
 
-            // Chain — comma-separated names of follow-up actions. Destinations
-            // pass "" downstream (per chain design — they're side-effect actions).
+            // Chain — names of follow-up actions. Destinations pass "" downstream
+            // (per chain design — they're side-effect actions).
             VStack(alignment: .leading, spacing: 4) {
                 Text("Then run")
                     .font(.system(size: 10))
                     .foregroundColor(.caiTextSecondary)
-                TextField("e.g. Send to Slack, Save to Notes", text: $formNext)
-                    .font(.system(size: 11))
-                Text("Comma-separated action names. Lookup is by name; shortcuts win on collision.")
+                ChainStepsTokenField(
+                    tokens: $formNext,
+                    availableNames: availableChainNames(excluding: destinationId),
+                    placeholder: "Search actions to add..."
+                )
+                Text("Type to search; ⏎ or comma to add. Lookup is by name; shortcuts win on collision.")
                     .font(.system(size: 9))
                     .foregroundColor(.caiTextSecondary.opacity(0.6))
                     .fixedSize(horizontal: false, vertical: true)
@@ -619,7 +657,7 @@ struct DestinationsManagementView: View {
         formName = dest.name
         formShowInActionList = dest.showInActionList
         formSetupFields = dest.setupFields
-        formNext = dest.next.joined(separator: ", ")
+        formNext = dest.next
 
         switch dest.type {
         case .applescript(let template):
@@ -655,9 +693,9 @@ struct DestinationsManagementView: View {
         guard !trimmedName.isEmpty else { return }
 
         let destType = buildDestinationType()
-        // Parse comma-separated chain names. Trim each, drop empties.
+        // Token field already trims and drops empties — defensive re-filter
+        // in case a programmatic update slipped past it.
         let nextSlugs = formNext
-            .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
@@ -712,7 +750,7 @@ struct DestinationsManagementView: View {
         formDeeplink = ""
         formShellCommand = ""
         formSetupFields = []
-        formNext = ""
+        formNext = []
     }
 
     private func cancelForm() {
@@ -721,7 +759,19 @@ struct DestinationsManagementView: View {
             isAddingNew = false
             editingDestinationId = nil
         }
-        resetForm()
+        // Defer the form @State reset by one runloop tick. The form contains
+        // `ForEach($formSetupFields)` whose row TextFields commit on blur via
+        // index-based bindings (`$formSetupFields[N].value`). If we clear
+        // `formSetupFields` synchronously here, an in-flight commit triggered
+        // by the teardown layout pass will index into an empty array and trap
+        // (`Swift/ContiguousArrayBuffer.swift:691: Fatal error: Index out of range`).
+        // Deferring lets SwiftUI detach the TextFields first; by next tick the
+        // bindings are gone and clearing the array is safe.
+        // Repro: open a webhook destination, type into a setup field's value,
+        // click Save while focus is still in the field — pre-fix this crashes.
+        DispatchQueue.main.async {
+            self.resetForm()
+        }
     }
 
     // MARK: - Share as Extension

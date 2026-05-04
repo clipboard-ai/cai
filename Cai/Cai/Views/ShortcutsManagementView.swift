@@ -21,10 +21,24 @@ struct ShortcutsManagementView: View {
     @State private var formAutoReplace: Bool = false
     @State private var formPinned: Bool = false
     @State private var formRunInBackground: Bool = false
-    /// Comma-separated names of follow-up actions. Parsed into `[String]` on
-    /// save (trimmed, empties dropped). Lookup happens by name at chain time
-    /// in `ChainExecutor`; shortcuts win on collision with destinations.
-    @State private var formNext: String = ""
+    /// Names of follow-up actions to chain. Edited via `ChainStepsTokenField`
+    /// (NSTokenField wrapper) — chips with native autocomplete from the pool
+    /// of available shortcut + destination names. Lookup happens by name at
+    /// chain time in `ChainExecutor`; shortcuts win on collision with
+    /// destinations.
+    @State private var formNext: [String] = []
+
+    /// Pool of names available for chain autocomplete. All custom shortcuts
+    /// (excluding the one being edited, since chaining to self is a cycle)
+    /// + all output destinations. Computed on each render so settings
+    /// changes propagate without refresh.
+    private func availableChainNames(excluding excludeId: UUID?) -> [String] {
+        let shortcutNames = settings.shortcuts
+            .filter { $0.id != excludeId }
+            .map(\.name)
+        let destinationNames = settings.outputDestinations.map(\.name)
+        return shortcutNames + destinationNames
+    }
     /// Tracks whether the *previous* known formValue contained `|llm`. Used by
     /// the auto-enable heuristic for "Run in background" so we only fire on
     /// transitions, never on initial editor population (which would otherwise
@@ -109,6 +123,28 @@ struct ShortcutsManagementView: View {
             // the fold expands. List supports scrollTo since macOS 11+.
             ScrollViewReader { proxy in
             List {
+                // Browse community extensions — at the top so discovery is
+                // the first affordance the eye lands on, not a footer
+                // afterthought. Hidden during edit/add to keep the form
+                // surface uncluttered. Empty state has its own browse CTA.
+                if onBrowseExtensions != nil && !settings.shortcuts.isEmpty && !isAddingNew && editingShortcutId == nil {
+                    Button(action: { onBrowseExtensions?() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.grid.2x2")
+                                .font(.system(size: 10, weight: .medium))
+                            Text("Browse Community Extensions")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.caiPrimary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 0, trailing: 8))
+                }
+
                 if settings.shortcuts.isEmpty && !isAddingNew {
                     emptyState
                         .listRowSeparator(.hidden)
@@ -161,25 +197,6 @@ struct ShortcutsManagementView: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
                 }
 
-                // Browse community extensions — always visible, so users can
-                // discover new actions without having to empty their own list first.
-                if onBrowseExtensions != nil && !settings.shortcuts.isEmpty && !isAddingNew && editingShortcutId == nil {
-                    Button(action: { onBrowseExtensions?() }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "square.grid.2x2")
-                                .font(.system(size: 10, weight: .medium))
-                            Text("Browse Community Extensions")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundColor(.caiPrimary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
-                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -356,7 +373,7 @@ struct ShortcutsManagementView: View {
         formAutoReplace = shortcut.autoReplaceSelection
         formPinned = shortcut.pinned
         formRunInBackground = shortcut.runInBackground
-        formNext = shortcut.next.joined(separator: ", ")
+        formNext = shortcut.next
         // Seed the tracker with the loaded value's |llm state so the *first*
         // onChange triggered by populating formValue doesn't mistakenly auto-
         // flip the toggle on (which would override the user's persisted
@@ -378,7 +395,7 @@ struct ShortcutsManagementView: View {
         formAutoReplace = false
         formPinned = false
         formRunInBackground = false
-        formNext = ""
+        formNext = []
         lastFormValueHadLLM = false  // empty value, no |llm
         withAnimation(.easeInOut(duration: 0.2)) {
             isAddingNew = true
@@ -496,6 +513,27 @@ struct ShortcutsManagementView: View {
                 .controlSize(.mini)
             }
 
+            // Chain — applies to all types. Names of follow-up actions
+            // (shortcuts or destinations). When non-empty, this action
+            // dismisses Cai immediately on trigger and runs silently with menu
+            // bar pulse + terminal toast (no result view mid-chain).
+            // Placed above "Run in background" because it's the higher-signal
+            // setting for chains: setting it forces background dispatch anyway.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Then run")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary)
+                ChainStepsTokenField(
+                    tokens: $formNext,
+                    availableNames: availableChainNames(excluding: shortcutId),
+                    placeholder: "Search actions to add..."
+                )
+                Text("Each step's output pipes into the next via {{result}}. Type to search; ⏎ or comma to add. Lookup is by name; shortcuts win on collision with destinations.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // Run in background, shell- and prompt-type. URL shortcuts skip
             // this — they're already fire-and-forget.
             // Auto-enabled for shell when the template contains `|llm` (the
@@ -533,23 +571,6 @@ struct ShortcutsManagementView: View {
             }
             .toggleStyle(.switch)
             .controlSize(.mini)
-
-            // Chain — applies to all types. Comma-separated names of follow-up
-            // actions (shortcuts or destinations). When non-empty, this action
-            // dismisses Cai immediately on trigger and runs silently with menu
-            // bar pulse + terminal toast (no result view mid-chain).
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Then run")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary)
-                TextField("e.g. Send to Slack, Save to Notes", text: $formNext)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                Text("Comma-separated action names. Each step's output pipes into the next via {{result}}. Lookup is by name; shortcuts win on collision with destinations.")
-                    .font(.system(size: 10))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
 
             // Save / Cancel buttons
             HStack(spacing: 8) {
@@ -665,10 +686,9 @@ struct ShortcutsManagementView: View {
         let autoReplace = formType == .prompt && formAutoReplace
         // Shell + prompt support background execution; URL drops it.
         let runInBackground = (formType == .shell || formType == .prompt) && formRunInBackground
-        // Parse comma-separated chain names. Trim each, drop empties so a
-        // trailing comma or " ,,foo" doesn't create phantom steps.
+        // Token field already trims and drops empties — but defensively
+        // re-filter in case a programmatic update slipped past it.
         let nextSlugs = formNext
-            .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
@@ -722,7 +742,7 @@ struct ShortcutsManagementView: View {
         formAutoReplace = false
         formPinned = false
         formRunInBackground = false
-        formNext = ""
+        formNext = []
         lastFormValueHadLLM = false
     }
 

@@ -86,6 +86,7 @@
 		CAI00414 /* BackgroundTaskTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00415 /* BackgroundTaskTracker.swift */; };
 		CAI00416 /* ChainExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00417 /* ChainExecutor.swift */; };
 		CAI00420 /* ChainExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00421 /* ChainExecutorTests.swift */; };
+		CAI00422 /* ChainStepsTokenField.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00423 /* ChainStepsTokenField.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -176,6 +177,7 @@
 		CAI00415 /* BackgroundTaskTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskTracker.swift; sourceTree = "<group>"; };
 		CAI00417 /* ChainExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainExecutor.swift; sourceTree = "<group>"; };
 		CAI00421 /* ChainExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainExecutorTests.swift; sourceTree = "<group>"; };
+		CAI00423 /* ChainStepsTokenField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChainStepsTokenField.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -316,6 +318,7 @@
 				CAI00091 /* CustomPromptView.swift */,
 				CAI00093 /* ToastWindow.swift */,
 				CAI00144 /* ShortcutRecorderView.swift */,
+				CAI00423 /* ChainStepsTokenField.swift */,
 				CAI00107 /* AboutView.swift */,
 				CAI00109 /* KeyboardHint.swift */,
 				CAI00115 /* ShortcutsManagementView.swift */,
@@ -469,6 +472,7 @@
 				CAI00090 /* CustomPromptView.swift in Sources */,
 				CAI00092 /* ToastWindow.swift in Sources */,
 				CAI00143 /* ShortcutRecorderView.swift in Sources */,
+				CAI00422 /* ChainStepsTokenField.swift in Sources */,
 				CAI00100 /* LLMService.swift in Sources */,
 				CAI00102 /* SystemActions.swift in Sources */,
 				CAI00104 /* ActionGenerator.swift in Sources */,
