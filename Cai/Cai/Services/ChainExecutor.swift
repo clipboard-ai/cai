@@ -21,7 +21,13 @@ import Foundation
 ///     - shortcut `.shell`     → stdout (trimmed)
 ///     - shortcut `.prompt`    → LLM response (trimmed)
 ///     - shortcut `.url`       → "" (URL was opened; nothing to propagate)
-///     - destination of any kind → "" (side-effect actions; chain output ends)
+///     - destination of any kind → input passed through unchanged (acts like
+///       Unix `tee` — the destination side-effects on the value, but the
+///       chain pipe keeps flowing). This lets users fan out the same
+///       content to multiple destinations: `[Add Timestamp, Slack, Notes]`
+///       sends the timestamped value to BOTH Slack and Notes. The earlier
+///       v1 design returned `""` here — that broke the broadcast use case
+///       (the second destination got an empty payload).
 ///   Empty pipe values flow through cleanly; the next step gets "".
 /// - MCP form actions are not chainable in v1 (multi-field inputs don't fit
 ///   the single-pipe model). They can be `next:` *targets* in v2 if demand
@@ -288,7 +294,11 @@ final class ChainExecutor {
         case .destination(let d):
             // OutputDestinationService is an actor; it handles its own threading.
             try await OutputDestinationService.shared.execute(d, with: input, sourceBundleId: sourceBundleId)
-            return ""  // destinations don't propagate output for v1
+            // Pass through unchanged — destinations are `tee`-style: they
+            // side-effect on the input, but the pipe keeps flowing so a
+            // subsequent step (typically another destination) gets the same
+            // content. See the doc comment at the top of the file.
+            return input
         }
     }
 
