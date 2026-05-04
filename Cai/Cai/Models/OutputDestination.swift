@@ -14,6 +14,15 @@ struct OutputDestination: Codable, Identifiable, Equatable {
     var isBuiltIn: Bool                 // true for Mail, Notes, Reminders
     var showInActionList: Bool          // also show as direct-route action (no LLM step)
     var setupFields: [SetupField]       // user-configurable values (API keys, etc.)
+    /// Names of additional actions (shortcuts or destinations) to run after
+    /// this one completes. Sequential pipe — each step's output becomes the
+    /// next step's `{{result}}`. NOT routed through the system clipboard:
+    /// the chain executor uses an in-memory pipe so the user can copy other
+    /// text mid-chain without breaking the flow.
+    /// Empty array means "no chaining" (the default). Lookup is by `name`,
+    /// preferring shortcuts over destinations on collision.
+    /// Cycle detection + max-depth-10 guard the executor against runaway loops.
+    var next: [String]
 
     init(
         id: UUID = UUID(),
@@ -23,7 +32,8 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         isEnabled: Bool = true,
         isBuiltIn: Bool = false,
         showInActionList: Bool = false,
-        setupFields: [SetupField] = []
+        setupFields: [SetupField] = [],
+        next: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -33,6 +43,27 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         self.isBuiltIn = isBuiltIn
         self.showInActionList = showInActionList
         self.setupFields = setupFields
+        self.next = next
+    }
+
+    /// Custom decoder — `decodeIfPresent` for `next` so previously-persisted
+    /// destinations (without the field) decode cleanly with an empty list.
+    /// Encode stays synthesized; all fields are always written.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.icon = try c.decode(String.self, forKey: .icon)
+        self.type = try c.decode(DestinationType.self, forKey: .type)
+        self.isEnabled = try c.decode(Bool.self, forKey: .isEnabled)
+        self.isBuiltIn = try c.decode(Bool.self, forKey: .isBuiltIn)
+        self.showInActionList = try c.decode(Bool.self, forKey: .showInActionList)
+        self.setupFields = try c.decode([SetupField].self, forKey: .setupFields)
+        self.next = try c.decodeIfPresent([String].self, forKey: .next) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, icon, type, isEnabled, isBuiltIn, showInActionList, setupFields, next
     }
 
     /// Whether all required setup fields have values

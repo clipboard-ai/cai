@@ -25,6 +25,15 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
     /// The shortcut editor auto-enables this flag on transition from "no `|llm`"
     /// to "has `|llm`" in the template (one-shot heuristic; user can override).
     var runInBackground: Bool
+    /// Names of additional actions (shortcuts or destinations) to run after
+    /// this one completes. Sequential pipe — each action's output becomes the
+    /// next action's `{{result}}`. NOT routed through the system clipboard:
+    /// the chain executor uses an in-memory pipe so the user can copy other
+    /// text mid-chain without breaking the flow.
+    /// Empty array means "no chaining" (the default). Lookup is by `name`,
+    /// preferring shortcuts over destinations on collision.
+    /// Cycle detection + max-depth-10 guard the executor against runaway loops.
+    var next: [String]
 
     enum ShortcutType: String, Codable, CaseIterable {
         case prompt
@@ -59,7 +68,7 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         }
     }
 
-    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false, runInBackground: Bool = false) {
+    init(id: UUID = UUID(), name: String, type: ShortcutType, value: String, autoReplaceSelection: Bool = false, pinned: Bool = false, runInBackground: Bool = false, next: [String] = []) {
         self.id = id
         self.name = name
         self.type = type
@@ -67,10 +76,11 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         self.autoReplaceSelection = autoReplaceSelection
         self.pinned = pinned
         self.runInBackground = runInBackground
+        self.next = next
     }
 
     // Custom decoder so previously-persisted shortcuts (without newer flags)
-    // still decode, defaulting them to false.
+    // still decode, defaulting them to false / empty.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(UUID.self, forKey: .id)
@@ -80,10 +90,11 @@ struct CaiShortcut: Codable, Identifiable, Equatable {
         self.autoReplaceSelection = try c.decodeIfPresent(Bool.self, forKey: .autoReplaceSelection) ?? false
         self.pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         self.runInBackground = try c.decodeIfPresent(Bool.self, forKey: .runInBackground) ?? false
+        self.next = try c.decodeIfPresent([String].self, forKey: .next) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, type, value, autoReplaceSelection, pinned, runInBackground
+        case id, name, type, value, autoReplaceSelection, pinned, runInBackground, next
     }
 }
 
