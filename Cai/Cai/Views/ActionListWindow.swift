@@ -129,15 +129,14 @@ struct ActionListWindow: View {
         )
         for action in searchableActions {
             if anyWordHasPrefix(action.title, query: query) {
-                items.append(ActionItem(
-                    id: action.id,
-                    title: action.title,
-                    subtitle: action.subtitle,
-                    icon: action.icon,
-                    shortcut: shortcut,
-                    type: action.type,
-                    autoReplaceSelection: action.autoReplaceSelection
-                ))
+                // Renumber `shortcut` in place — `ActionItem.shortcut` is `var`
+                // specifically so this stays a one-liner. Manual rebuilds
+                // historically dropped newer fields (`next`, `runInBackground`)
+                // because every new field had to be remembered. Mutation makes
+                // that class of bug structurally impossible.
+                var renumbered = action
+                renumbered.shortcut = shortcut
+                items.append(renumbered)
                 shortcut += 1
             }
         }

@@ -7,7 +7,11 @@ struct ActionItem: Identifiable {
     let title: String
     let subtitle: String?
     let icon: String  // SF Symbol name
-    let shortcut: Int
+    /// Display-only ⌘ keyboard number (1-9). `var` so filter-to-reveal can
+    /// renumber an existing item via in-place mutation rather than rebuilding,
+    /// which historically dropped newer fields (`next`, `runInBackground`)
+    /// because the rebuild had to be kept exhaustively in sync by hand.
+    var shortcut: Int
     let type: ActionType
     /// Set by shortcut-driven actions where the user has opted in to
     /// auto-pasting the LLM response back over their selection.
