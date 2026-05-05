@@ -46,9 +46,11 @@ struct ActionListWindow: View {
     @State private var showSettings: Bool = false
     @State private var showHistory: Bool = false
     @State private var showCustomPrompt: Bool = false
+    /// Routes to the unified `ActionsManagementView` (Custom + Built-in tabs).
+    /// Name kept (vs. `showActionsManagement`) to minimize rename churn after
+    /// the 2026-05-05 unification.
     @State private var showShortcutsManagement: Bool = false
     @State private var showDestinationsManagement: Bool = false
-    @State private var showBuiltInActions: Bool = false
     @State private var showExtensionBrowser: Bool = false
     @State private var showConnectors: Bool = false
     @StateObject private var historySelectionState = SelectionState()
@@ -92,7 +94,6 @@ struct ActionListWindow: View {
         if showExtensionBrowser { return .extensionBrowser }
         if showDestinationsManagement { return .destinationsManagement }
         if showShortcutsManagement { return .shortcutsManagement }
-        if showBuiltInActions { return .builtInActions }
         if showSettings { return .settings }
         if showHistory { return .history }
         if showResult { return .result }
@@ -101,7 +102,7 @@ struct ActionListWindow: View {
     }
 
     private enum Screen {
-        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, builtInActions, extensionBrowser, extensionConfirm, mcpForm, connectors
+        case actions, result, settings, history, customPrompt, shortcutsManagement, destinationsManagement, extensionBrowser, extensionConfirm, mcpForm, connectors
     }
 
     /// Actions to display — when filtering, merges built-in actions + user shortcuts,
@@ -168,7 +169,6 @@ struct ActionListWindow: View {
             .onChange(of: showCustomPrompt) { updateFilterInputFlag() }
             .onChange(of: showShortcutsManagement) { updateFilterInputFlag() }
             .onChange(of: showDestinationsManagement) { updateFilterInputFlag() }
-            .onChange(of: showBuiltInActions) { updateFilterInputFlag() }
             .onChange(of: showMCPForm) { updateFilterInputFlag() }
             .onChange(of: showConnectors) { updateFilterInputFlag() }
             .onChange(of: showExtensionConfirm) { updateFilterInputFlag() }
@@ -245,7 +245,6 @@ struct ActionListWindow: View {
                     showCustomPrompt = false
                     showShortcutsManagement = false
                     showDestinationsManagement = false
-                    showBuiltInActions = false
                     showExtensionConfirm = false
                     showMCPForm = false
                     showConnectors = false
@@ -321,11 +320,6 @@ struct ActionListWindow: View {
         } else if showShortcutsManagement {
             withAnimation(.easeInOut(duration: 0.15)) {
                 showShortcutsManagement = false
-                showSettings = true
-            }
-        } else if showBuiltInActions {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                showBuiltInActions = false
                 showSettings = true
             }
         } else if showCustomPrompt {
@@ -717,12 +711,6 @@ struct ActionListWindow: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showSettings = false
                         showConnectors = true
-                    }
-                },
-                onShowBuiltInActions: {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        showSettings = false
-                        showBuiltInActions = true
                     }
                 },
                 onShowModelSetup: {
@@ -1469,7 +1457,7 @@ struct ActionListWindow: View {
                 }
             )
         } else if showShortcutsManagement {
-            ShortcutsManagementView(
+            ActionsManagementView(
                 onBack: {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showShortcutsManagement = false
@@ -1480,15 +1468,6 @@ struct ActionListWindow: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showShortcutsManagement = false
                         showExtensionBrowser = true
-                    }
-                }
-            )
-        } else if showBuiltInActions {
-            BuiltInActionsView(
-                onBack: {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        showBuiltInActions = false
-                        showSettings = true
                     }
                 }
             )

@@ -7,6 +7,10 @@ struct ShortcutsManagementView: View {
     @ObservedObject var settings = CaiSettings.shared
     let onBack: () -> Void
     var onBrowseExtensions: (() -> Void)?
+    /// When `false`, skip the screen header + footer. Used by
+    /// `ActionsManagementView` which provides its own header (with the
+    /// TabBar) and footer at the parent level.
+    var showsChrome: Bool = true
 
     @State private var editingShortcutId: UUID?
     @State private var isAddingNew: Bool = false
@@ -90,55 +94,85 @@ struct ShortcutsManagementView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 10) {
-                Image(systemName: "bolt.circle.fill")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.caiPrimary)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Custom Actions")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.caiTextPrimary)
-
-                    Text(settings.shortcuts.isEmpty
-                         ? "Type to filter actions when Cai is open"
-                         : "\(settings.shortcuts.count) custom action\(settings.shortcuts.count == 1 ? "" : "s")")
-                        .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary)
-                }
-
-                Spacer()
-
-                // Top-right add button — always visible. Clicking while a
-                // form is open cancels that edit (no discard prompt — same
-                // policy as the × in the editor) and opens a fresh add form.
-                // Discoverability beats accidental-loss avoidance here:
-                // hiding the + when editing made users feel trapped.
-                Button(action: {
-                    cancelForm()
-                    beginAdding()
-                }) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.caiPrimary)
-                }
-                .buttonStyle(.plain)
-                .help("Add a new custom action")
+            if showsChrome {
+                screenHeader
+                Divider().background(Color.caiDivider)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            content
+            if showsChrome {
+                Spacer(minLength: 0)
+                Divider().background(Color.caiDivider)
+                footer
+            }
+        }
+    }
 
-            Divider()
-                .background(Color.caiDivider)
+    /// Top-right `+` always visible, even when a form is open. Clicking
+    /// while editing cancels the in-progress form (no discard prompt —
+    /// same policy as the × in the editor) and opens a fresh add form.
+    /// Public so the tabbed parent (`ActionsManagementView`) can render an
+    /// equivalent button in its header without depending on `showsChrome`.
+    var addButton: some View {
+        Button(action: {
+            cancelForm()
+            beginAdding()
+        }) {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.caiPrimary)
+        }
+        .buttonStyle(.plain)
+        .help("Add a new custom action")
+    }
 
-            // Content — `List` (not `ScrollView { VStack }`) so `.onMove` can wire
-            // up drag-to-reorder. `.listStyle(.plain)` + per-row clear background
-            // strips List's default chrome so rows keep their card aesthetic.
-            // ScrollViewReader lets us auto-scroll the editing/adding form into
-            // view so the screen doesn't appear to "jump" when content below
-            // the fold expands. List supports scrollTo since macOS 11+.
-            ScrollViewReader { proxy in
+    private var screenHeader: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "bolt.circle.fill")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.caiPrimary)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Custom Actions")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.caiTextPrimary)
+
+                Text(settings.shortcuts.isEmpty
+                     ? "Type to filter actions when Cai is open"
+                     : "\(settings.shortcuts.count) custom action\(settings.shortcuts.count == 1 ? "" : "s")")
+                    .font(.system(size: 11))
+                    .foregroundColor(.caiTextSecondary)
+            }
+
+            Spacer()
+
+            addButton
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    /// Footer with the Esc keyboard hint. Hidden when the view is embedded
+    /// in a tabbed parent (parent owns its own footer).
+    private var footer: some View {
+        HStack(spacing: 12) {
+            KeyboardHint(key: "Esc", label: "Back")
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    /// The list of shortcuts + inline edit/add form. Reusable inside both
+    /// the standalone `ShortcutsManagementView` and the tabbed
+    /// `ActionsManagementView`'s Custom tab.
+    private var content: some View {
+        // `List` (not `ScrollView { VStack }`) so `.onMove` can wire up
+        // drag-to-reorder. `.listStyle(.plain)` + per-row clear background
+        // strips List's default chrome so rows keep their card aesthetic.
+        // ScrollViewReader lets us auto-scroll the editing/adding form into
+        // view so the screen doesn't appear to "jump" when content below
+        // the fold expands.
+        ScrollViewReader { proxy in
             List {
                 // Browse community extensions — at the top so discovery is
                 // the first affordance the eye lands on, not a footer
@@ -233,21 +267,7 @@ struct ShortcutsManagementView: View {
                     proxy.scrollTo("addNewShortcut", anchor: .top)
                 }
             }
-            }  // end ScrollViewReader
-
-            Spacer(minLength: 0)
-
-            Divider()
-                .background(Color.caiDivider)
-
-            // Footer
-            HStack(spacing: 12) {
-                KeyboardHint(key: "Esc", label: "Back")
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
+        }  // end ScrollViewReader
     }
 
     // MARK: - Empty State

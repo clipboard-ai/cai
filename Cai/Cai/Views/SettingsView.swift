@@ -251,11 +251,16 @@ struct SettingsView: View {
                     }
 
                     // MARK: Extensions Group
-                    // Order: Custom Actions → Destinations → Connectors.
-                    // Destinations sit closer to Actions because users create both.
-                    // Connectors is last — it's a curated list (no user-created connectors yet).
+                    // Order: Actions → Destinations → Connectors.
+                    // Actions is unified: Custom + Built-in under one screen via tabs
+                    // (collapsed from two separate Settings entries 2026-05-05).
                     settingsGroup(title: "Extensions") {
-                        navRow(label: "Custom Actions", count: settings.shortcuts.count, action: onShowShortcuts)
+                        navRow(
+                            label: "Actions",
+                            count: settings.shortcuts.count + visibleBuiltInActionsCount,
+                            total: settings.shortcuts.count + BuiltInActionID.allCases.count,
+                            action: onShowShortcuts
+                        )
 
                         settingsDivider
 
@@ -264,18 +269,6 @@ struct SettingsView: View {
                         settingsDivider
 
                         connectorsNavRow
-
-                        settingsDivider
-
-                        // Built-in Actions last: the additive rows above ("add shortcut",
-                        // "add destination", "connect a tool") come before the subtractive
-                        // "hide built-ins I don't use." Build up first, refine last.
-                        navRow(
-                            label: "Built-in Actions",
-                            count: visibleBuiltInActionsCount,
-                            total: BuiltInActionID.allCases.count,
-                            action: onShowBuiltInActions
-                        )
                     }
 
                     Button(action: onShowExtensions ?? {}) {

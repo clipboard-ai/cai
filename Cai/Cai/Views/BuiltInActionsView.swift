@@ -8,6 +8,12 @@ import SwiftUI
 ///
 /// Hidden actions stay reachable via type-to-filter in the main action list
 /// (see `ActionGenerator.generateAllActions`).
+///
+/// **Composition note:** the chrome-less content (just the list of toggle
+/// rows) is exposed via `BuiltInActionsContent` so it can be embedded inside
+/// the tabbed `ActionsManagementView`. The standalone `BuiltInActionsView`
+/// keeps the full screen chrome (header + footer + Esc hint) for backward
+/// compat with any direct-nav callers.
 struct BuiltInActionsView: View {
     @ObservedObject var settings = CaiSettings.shared
     let onBack: () -> Void
@@ -38,23 +44,8 @@ struct BuiltInActionsView: View {
             Divider()
                 .background(Color.caiDivider)
 
-            // Content — one row per action, Connectors-style cards
-            ScrollView {
-                VStack(spacing: 6) {
-                    Text("Hidden actions remain accessible by typing to filter in the action list.")
-                        .font(.system(size: 10))
-                        .foregroundColor(.caiTextSecondary.opacity(0.6))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 4)
-
-                    ForEach(BuiltInActionID.allCases, id: \.rawValue) { action in
-                        actionRow(action)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-            }
+            // Content — extracted so `ActionsManagementView` can reuse it.
+            BuiltInActionsContent()
 
             Spacer(minLength: 0)
 
@@ -75,6 +66,35 @@ struct BuiltInActionsView: View {
 
     private var visibleCount: Int {
         BuiltInActionID.allCases.filter { !settings.hiddenBuiltInActions.contains($0.rawValue) }.count
+    }
+
+}
+
+// MARK: - BuiltInActionsContent
+//
+// Chrome-less list of toggle rows. Embedded inside `ActionsManagementView`
+// (Built-in tab) and `BuiltInActionsView` (full-screen variant).
+
+struct BuiltInActionsContent: View {
+    @ObservedObject var settings = CaiSettings.shared
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 6) {
+                Text("Hidden actions remain accessible by typing to filter in the action list.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+
+                ForEach(BuiltInActionID.allCases, id: \.rawValue) { action in
+                    actionRow(action)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+        }
     }
 
     /// Single row mirroring `ConnectorsSettingsView`'s connector row:
