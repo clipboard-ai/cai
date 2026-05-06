@@ -20,6 +20,10 @@ struct OutputDestination: Codable, Identifiable, Equatable {
     /// Shortcuts — see `ChainStep`. Empty means no chaining (default).
     /// Cycle detection + max-depth-10 guard the executor against runaway loops.
     var next: [ChainStep]
+    /// Pinned destinations show at the top of the destinations list in
+    /// Settings + the action list. Mirrors `CaiShortcut.pinned`. Defaults
+    /// to false; existing destinations decode as unpinned (backward-compat).
+    var pinned: Bool
 
     init(
         id: UUID = UUID(),
@@ -30,7 +34,8 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         isBuiltIn: Bool = false,
         showInActionList: Bool = false,
         setupFields: [SetupField] = [],
-        next: [ChainStep] = []
+        next: [ChainStep] = [],
+        pinned: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -41,11 +46,12 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         self.showInActionList = showInActionList
         self.setupFields = setupFields
         self.next = next
+        self.pinned = pinned
     }
 
-    /// Custom decoder — `decodeIfPresent` for `next` so previously-persisted
-    /// destinations (without the field) decode cleanly with an empty list.
-    /// Encode stays synthesized; all fields are always written.
+    /// Custom decoder — `decodeIfPresent` for fields added after v1 so
+    /// previously-persisted destinations decode cleanly. Encode stays
+    /// synthesized; all fields are always written.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(UUID.self, forKey: .id)
@@ -57,10 +63,11 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         self.showInActionList = try c.decode(Bool.self, forKey: .showInActionList)
         self.setupFields = try c.decode([SetupField].self, forKey: .setupFields)
         self.next = try c.decodeIfPresent([ChainStep].self, forKey: .next) ?? []
+        self.pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, icon, type, isEnabled, isBuiltIn, showInActionList, setupFields, next
+        case id, name, icon, type, isEnabled, isBuiltIn, showInActionList, setupFields, next, pinned
     }
 
     /// Whether all required setup fields have values
@@ -201,7 +208,7 @@ struct SetupField: Codable, Identifiable, Equatable {
         id: UUID = UUID(),
         key: String,
         value: String = "",
-        isSecret: Bool = false
+        isSecret: Bool = true
     ) {
         self.id = id
         self.key = key

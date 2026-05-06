@@ -92,6 +92,7 @@
 		CAI00428 /* InlineLLMEditPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00429 /* InlineLLMEditPopover.swift */; };
 		CAI00430 /* TabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00431 /* TabBar.swift */; };
 		CAI00432 /* ActionsManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00433 /* ActionsManagementView.swift */; };
+		CAI00434 /* MultilineTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAI00435 /* MultilineTextEditor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -188,6 +189,7 @@
 		CAI00429 /* InlineLLMEditPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineLLMEditPopover.swift; sourceTree = "<group>"; };
 		CAI00431 /* TabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBar.swift; sourceTree = "<group>"; };
 		CAI00433 /* ActionsManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsManagementView.swift; sourceTree = "<group>"; };
+		CAI00435 /* MultilineTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultilineTextEditor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -334,6 +336,7 @@
 				CAI00429 /* InlineLLMEditPopover.swift */,
 				CAI00431 /* TabBar.swift */,
 				CAI00433 /* ActionsManagementView.swift */,
+				CAI00435 /* MultilineTextEditor.swift */,
 				CAI00107 /* AboutView.swift */,
 				CAI00109 /* KeyboardHint.swift */,
 				CAI00115 /* ShortcutsManagementView.swift */,
@@ -493,6 +496,7 @@
 				CAI00428 /* InlineLLMEditPopover.swift in Sources */,
 				CAI00430 /* TabBar.swift in Sources */,
 				CAI00432 /* ActionsManagementView.swift in Sources */,
+				CAI00434 /* MultilineTextEditor.swift in Sources */,
 				CAI00100 /* LLMService.swift in Sources */,
 				CAI00102 /* SystemActions.swift in Sources */,
 				CAI00104 /* ActionGenerator.swift in Sources */,

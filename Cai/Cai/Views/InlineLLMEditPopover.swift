@@ -20,8 +20,6 @@ struct LLMEditPopover: View {
     let onCommit: () -> Void
     let onCancel: () -> Void
 
-    @FocusState private var fieldFocused: Bool
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -34,28 +32,28 @@ struct LLMEditPopover: View {
                 Spacer()
             }
 
-            // `TextField` with `axis: .vertical` (macOS 14+) gives us a
-            // multi-line input that — unlike TextEditor — doesn't consume
-            // ⌘⏎ before the keyboardShortcut handler sees it.
-            TextField(
-                "e.g. summarize as 3 bullets, no preamble, plain text",
+            // `MultilineTextEditor` (NSTextView wrapper) — gives us a real
+            // multi-line editor where plain Return inserts a newline AND
+            // ⌘⏎ forwards to the Done button's keyboard shortcut.
+            // `TextField(axis: .vertical)` swallows Return on macOS;
+            // `TextEditor` swallows ⌘⏎. We need both.
+            // Popover uses larger min/max (3-6 lines) since it's a
+            // dedicated editor not competing for form real-estate.
+            // ⌘⏎ commits / Esc cancels via direct callbacks (more reliable
+            // than SwiftUI's keyboardShortcut chain through NSTextView).
+            let editor = MultilineTextEditor(
                 text: $directive,
-                axis: .vertical
+                placeholder: "e.g. summarize as 3 bullets, no preamble, plain text",
+                minLines: 3,
+                maxLines: 6,
+                autoFocus: true,
+                onCommit: onCommit,
+                onCancel: onCancel
             )
-            .lineLimit(3...8)
-            .textFieldStyle(.plain)
-            .font(.system(size: 12))
-            .padding(8)
-            .frame(width: 320)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color(nsColor: .textBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-            )
-            .focused($fieldFocused)
+            editor
+                .frame(minHeight: editor.minHeight, maxHeight: editor.maxHeight)
+                .frame(width: 320)
+                .formFieldShell()
 
             Text("Applied to the chain pipe value.")
                 .font(.system(size: 9))
@@ -86,6 +84,5 @@ struct LLMEditPopover: View {
             }
         }
         .padding(12)
-        .onAppear { fieldFocused = true }
     }
 }

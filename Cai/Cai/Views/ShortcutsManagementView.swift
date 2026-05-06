@@ -654,27 +654,27 @@ struct ShortcutsManagementView: View {
                 Spacer()
             }
 
-            // Auto-growing input. `TextField(axis: .vertical)` (macOS 14+)
-            // gives us a multi-line editor that doesn't intercept ⌘⏎ at the
-            // responder chain (unlike TextEditor — which is why the LLM
-            // popover also uses TextField vertical).
-            TextField(
-                formType.placeholder,
+            // Multi-line editor via `MultilineTextEditor` (NSTextView
+            // wrapper). Plain Return inserts a newline; ⌘⏎ saves via
+            // direct callback; Esc cancels via direct callback; Tab
+            // moves to next field. 2 lines tall by default, scrolls
+            // beyond 4 lines. The callback approach bypasses SwiftUI's
+            // `keyboardShortcut` chain (which doesn't reliably route
+            // through NSTextView's responder chain).
+            // Derive isNew + shortcutId from existing @State so callers
+            // don't need to thread them through this computed property.
+            let id = editingShortcutId
+            let isNew = isAddingNew
+            let editor = MultilineTextEditor(
                 text: $formValue,
-                axis: .vertical
+                placeholder: formType.placeholder,
+                monospaced: useMonospaced,
+                onCommit: { saveForm(isNew: isNew, shortcutId: id) },
+                onCancel: { cancelForm() }
             )
-            .lineLimit(2...8)
-            .textFieldStyle(.plain)
-            .font(.system(size: 12, design: useMonospaced ? .monospaced : .default))
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color(nsColor: .textBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-            )
+            editor
+                .frame(minHeight: editor.minHeight, maxHeight: editor.maxHeight)
+                .formFieldShell()
         }
     }
 
@@ -985,7 +985,7 @@ struct ShortcutsManagementView: View {
 // Hover highlights with a subtle wash, click flips state. Tooltip on hover
 // surfaces a short (under 8 words) explanation.
 
-private struct ChipToggle: View {
+struct ChipToggle: View {
     let label: String
     let icon: String
     let isOn: Bool
@@ -1056,7 +1056,7 @@ private struct ChipToggle: View {
 // indigo "on" state of `ChipToggle` so the user reads the two as
 // different categories of UI element.
 
-private struct ChipButton: View {
+struct ChipButton: View {
     let label: String
     let icon: String
     /// Whether the chip's underlying disclosure is "engaged" (e.g., chain
