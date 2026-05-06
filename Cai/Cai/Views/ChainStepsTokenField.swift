@@ -20,8 +20,11 @@ import SwiftUI
 ///   Cheap enough (~50-200ms) and avoids stale-data edge cases when the user
 ///   creates a new Shortcut and immediately returns to Cai.
 ///
-/// **Visual language:** chips inherit `DestinationChip`'s vocabulary —
-/// `caiPrimary.opacity(0.12)` fill, 5pt corner radius, 11pt medium label.
+/// **Visual language:** chips use neutral surface fill — under the
+/// "indigo discipline" rule (DESIGN.md), chain-step chips are passive
+/// labels ("I am a step"), not outcome-producing affordances ("I will
+/// act"), so they don't wear the brand color. `caiSurface.opacity(0.6)`
+/// fill, hairline divider border, 5pt corner radius, 11pt medium label.
 /// Per-type icon is the only visual difference between step types so the
 /// overall chain reads as one rhythm.
 ///
@@ -111,7 +114,7 @@ struct ChainStepsTokenField: View {
                 HStack(spacing: 4) {
                     Image(systemName: "link")
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.caiPrimary)
+                        .foregroundColor(.caiTextSecondary)
                     Text(name)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.caiTextPrimary)
@@ -125,7 +128,7 @@ struct ChainStepsTokenField: View {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.caiPrimary)
+                        .foregroundColor(.caiTextSecondary)
                     Text(truncate(directive, max: 30))
                         .font(.system(size: 11, weight: .medium).italic())
                         .foregroundColor(.caiTextPrimary)
@@ -159,16 +162,22 @@ struct ChainStepsTokenField: View {
     }
 
     private func chipShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        // Visible-but-quiet edge: full-opacity `separatorColor` (the
+        // standard macOS hairline) on a fully-saturated neutral surface.
+        // Goal: chips read as clearly-bounded units against the white
+        // text-background of the input field, without shouting (no indigo,
+        // no shadow). Stronger than the prior 0.5-opacity treatment per
+        // 2026-05-06 design feedback.
         content()
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.caiPrimary.opacity(0.12))
+                    .fill(Color.caiSurface)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(Color.caiPrimary.opacity(0.25), lineWidth: 0.5)
+                    .strokeBorder(Color.caiDivider, lineWidth: 0.5)
             )
     }
 
@@ -494,14 +503,14 @@ private struct DropdownRow: View {
         case .caiAction:
             Image(systemName: "link")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.caiPrimary)
+                .foregroundColor(.caiTextSecondary)
         case .appleShortcut:
             Image(nsImage: AppleShortcutsService.appIcon)
                 .resizable()
         case .inlineLLM:
             Image(systemName: "sparkles")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.caiPrimary)
+                .foregroundColor(.caiTextSecondary)
         }
     }
 

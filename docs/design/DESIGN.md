@@ -69,6 +69,26 @@ extension Color {
 - **`caiPrimarySubtle`** replaces `caiSelection` for indigo-branded interactive states (row hover, in-progress step background wash). `caiSelection` (system blue) is kept for text selection only.
 - **Success = green, Error = orange.** These match Apple's semantic system colors (SF Symbol `checkmark.circle.fill`, `exclamationmark.circle.fill`). Users already know what they mean.
 
+### Indigo discipline
+
+`caiPrimary` (indigo) signals "I will act / I am on / I am the focus." It's the only chromatic moment in the app — overusing it dilutes the signal. Reserve it for:
+
+- Primary buttons (Save, `+`, "Run")
+- ON-state toggles (`ChipToggle` filled — Silent, Auto-replace, Show-in-action-list)
+- Focused input border (`MultilineTextEditor`, `ChainStepsTokenField`)
+- Pinned-state pin glyph + tinted background
+- Header product mark (the icon on every screen header)
+- Dropdown / list-row keyboard-or-mouse selection highlight
+
+**Do NOT use `caiPrimary` for passive structural elements:**
+
+- Tab indicators — neutral `windowBackgroundColor` pill on neutral track (see `TabBar.swift`); it's structure, not action
+- Individual chain-step chips (`ChainStepsTokenField`'s `.action` / `.inlineLLM` chips) — they're labels ("I am a step"), not actors. Use `caiSurface.opacity(0.6)` fill, `caiDivider.opacity(0.5)` border, `caiTextSecondary` icon.
+- List-row hover backgrounds — use `caiSurface.opacity(0.4)`. Indigo here would compete with the row's inner indigo elements (pin, save).
+- Section headers, helper text, dividers, secondary buttons.
+
+The mental test: if a screenshot of this element existed in isolation, would the user expect tapping it to *do* something? Indigo means yes. Anything that's just *describing* state belongs in the neutral palette.
+
 ### Dark mode strategy
 Three modes: **System** (default), **Light**, **Dark** — implemented via `NSApp.appearance` in `CaiSettings`. No additional color work needed — all NSColor tokens adapt automatically.
 
@@ -240,6 +260,77 @@ private func moveShortcut(from source: IndexSet, to destination: Int) {
 }
 ```
 
+The same pattern is used in `DestinationsManagementView` for Custom destinations — `moveCustomDestination(from:to:)` operates on the pinned-first `customDestinations` view, then writes built-ins + resorted custom slice back to `settings.outputDestinations`. Built-ins live in a separate tab and stay in fixed order.
+
+### Two-tab management screen
+
+The shared parent shell behind `ActionsManagementView` and `DestinationsManagementView` (and any future Settings sub-screen with the same shape: a Custom tab + a Built-in tab). Lives in `ManagementScreen.swift`.
+
+**Anatomy:**
+
+```
+┌────────────────────────────────────────────────────────┐
+│  [icon]  Title                                     [+] │   ← header
+│          Per-tab subtitle                              │
+├────────────────────────────────────────────────────────┤
+│  [ Custom (12) ]  [ Built-in (8) ]                     │   ← TabBar (neutral)
+├────────────────────────────────────────────────────────┤
+│                                                        │
+│  Tab content (caller-supplied @ViewBuilder)            │   ← typically a
+│                                                        │     chrome-stripped
+│                                                        │     `List` so the
+│                                                        │     Custom tab can
+│                                                        │     drag-to-reorder
+│                                                        │
+├────────────────────────────────────────────────────────┤
+│  [Esc] Back                                            │   ← footer
+└────────────────────────────────────────────────────────┘
+```
+
+- **Header:** `icon · title · subtitle` on the left (icon at 14pt medium `caiPrimary`, title 13pt semibold `caiTextPrimary`, subtitle 11pt `caiTextSecondary`). The `+` on the right is rendered ONLY when `selection == customTabId` — Built-in tabs can't accept user-created items.
+- **TabBar:** neutral active pill on a recessed neutral track (no indigo — see "Indigo discipline"). Custom always first, Built-in always second; matches the user's likely edit frequency.
+- **Tab content:** caller-supplied `@ViewBuilder` that switches on `selection`. The child view should render WITHOUT its own header / footer — the shell provides those. When a tab needs drag-to-reorder, it uses `List` directly inside this slot, with `.listRowSeparator(.hidden) / .listRowBackground(.clear) / tight .listRowInsets` per row to strip List chrome.
+- **Footer:** single `KeyboardHint(key: "Esc", label: "Back")`. Add other hints via the caller if needed.
+- **`+` button trigger:** the parent's `onAdd` callback should bump a UUID `@State` that the embedded child view watches via an `externalAddTrigger` parameter. The child's `.onChange` then calls its internal `cancelForm() + beginAdding()` flow — same code path as the child's own `+` button. No `.id()` re-mount needed.
+
+This shell guarantees both screens are pixel-identical at the chrome level and lets new tabbed Settings sub-screens drop in with ~10 lines of glue.
+
+### Composer text input
+
+Multi-line form fields use `MultilineTextEditor` (an `NSTextView` wrapper — see file for the rationale). Defaults:
+
+- **`minLines: 1, maxLines: 4`, scroll beyond.** Matches Linear / Notion / Apple Mail composer UX. Two-line defaults are a web-form holdover; modern macOS composers all start at one line and grow with content.
+- **Font:** 12pt system. Pass `monospaced: true` for code/template content (URLs, shell commands, JSON, AppleScript).
+- **`Return` inserts a newline.** `⌘⏎` fires the form's save callback; `Esc` fires cancel. Both bypass SwiftUI's `keyboardShortcut` chain (which doesn't cooperate with `NSTextView` reliably).
+- **Visual shell:** wrap with the `formFieldShell(focused:)` modifier. Background is `Color(nsColor: .textBackgroundColor)`; border is hairline `caiDivider.opacity(0.5)`, or 1px `caiPrimary.opacity(0.5)` when focused. The focus ring is the only indigo moment on this control.
+- **Sizing:** clamp the field's height with `editor.minHeight ... editor.maxHeight` (computed from `fontSize × 1.4 × line-count`).
+
+```swift
+let editor = MultilineTextEditor(
+    text: $value,
+    placeholder: "What should this action do?",
+    onCommit: { saveForm() },
+    onCancel: { cancelForm() }
+)
+editor
+    .frame(minHeight: editor.minHeight, maxHeight: editor.maxHeight)
+    .formFieldShell()
+```
+
+### Empty states
+
+Used inside management screens when a tab has zero items. Implemented as `ManagementEmptyState` (see `ManagementScreen.swift`).
+
+**Anatomy:** icon + title + description + optional CTA button.
+
+- **Icon:** SF Symbol, 28pt light, `caiTextSecondary.opacity(0.4)`. Pick a symbol that depicts the *kind* of thing missing (`bolt.circle` for Actions, `paperplane.circle` for Destinations).
+- **Title:** 13pt medium, `caiTextPrimary`. Short noun phrase ("No custom destinations yet").
+- **Description:** 11pt, `caiTextSecondary.opacity(0.7)`, centered, max ~50 chars per line. Tells the user what the thing IS in plain language ("Send results to webhooks, AppleScript, deeplinks, or shell commands.").
+- **Optional CTA:** neutral button matching the `ChipButton` vocabulary — `caiSurface.opacity(0.6)` fill, hairline divider border. Used to expose the most likely next step (usually "Browse Community Extensions").
+- **Layout:** centered vertically inside `minHeight: 120`, `padding(.vertical, 24)`. The empty state should feel like a soft pause, not a dead screen.
+
+The mental rule: an empty state is a *welcome*, not an error. Warmth + one clear next step.
+
 ---
 
 ## Accessibility
@@ -273,3 +364,10 @@ private func moveShortcut(from source: IndexSet, to destination: Int) {
 | 2026-05-02 | Documented pin-button progressive-disclosure pattern | Established by clipboard history, reused by Custom Actions list (PR #22 follow-up). Keeps rows quiet while still discoverable. |
 | 2026-05-02 | Documented drag-to-reorder list pattern | New convention from `ShortcutsManagementView` migration to `List + .onMove`. Post-drop sort enforces invariants without section-bounded drag. |
 | 2026-05-02 | Moved DESIGN.md from private `_docs/` to public `docs/` | Contributors need access to the design system to make UI PRs. Other strategy/PII docs in `_docs/` stay private. |
+| 2026-05-06 | Indigo discipline rule formalized | The brand color was leaking into passive structural elements (tab indicator, chain-step chips). Reserve `caiPrimary` for outcome-producing affordances; neutral palette for everything that just describes state. Restores the "I will act" signal. |
+| 2026-05-06 | Tab bar uses neutral active state | macOS-native segmented-control look. Was `caiPrimary.opacity(0.12)` wash + indigo label; now `windowBackgroundColor` raised pill + `caiTextPrimary` label with a hairline shadow. |
+| 2026-05-06 | Chain-step chips use neutral fill | Steps are passive labels in a chain, not actions. Was `caiPrimary.opacity(0.12)` fill + indigo icon; now `caiSurface.opacity(0.6)` fill + `caiDivider` border + `caiTextSecondary` icon. The step's *content* now reads ahead of the chip's color. |
+| 2026-05-06 | `MultilineTextEditor` default: 1 line, grow to 4, scroll beyond | Was 2 lines. Modern macOS composers (Linear, Notion, Apple Mail) all start at one line. Lighter form rhythm; field grows the moment users type. |
+| 2026-05-06 | Extracted `ManagementScreen` shared shell | `ActionsManagementView` and `DestinationsManagementView` had drifted (delete affordance, `+` placement, empty state, hover opacity). Both now compose a generic shell — pixel-identical chrome by construction. |
+| 2026-05-06 | Custom Destinations gain drag-to-reorder + row delete + share | Parity with Custom Actions. Same `List + .onMove + post-drop pinned-first sort` pattern; same hover-revealed trailing share/delete buttons. |
+| 2026-05-06 | Standardized empty state pattern (`ManagementEmptyState`) | Was: Actions had icon + title + description + CTA, Destinations had bare text + CTA. Now both use the richer pattern. Empty state is a welcome, not an error. |

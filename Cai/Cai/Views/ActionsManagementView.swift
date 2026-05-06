@@ -13,8 +13,9 @@ import SwiftUI
 /// - The two tabs use different row patterns intentionally:
 ///   - Custom: full-CRUD row + inline edit form (`ShortcutsManagementView`)
 ///   - Built-in: hide/show toggle row (`BuiltInActionsContent`)
-/// - Container chrome (header + footer) is unified at the parent so the
-///   tabs feel like one screen, not two stacked windows.
+/// - Container chrome (header + footer) is unified via `ManagementScreen`
+///   so this screen and `DestinationsManagementView` are pixel-identical
+///   at the shell level by construction.
 struct ActionsManagementView: View {
     @ObservedObject var settings = CaiSettings.shared
     let onBack: () -> Void
@@ -26,69 +27,38 @@ struct ActionsManagementView: View {
 
     @State private var selectedTab: Tab = .custom
 
-    /// Reference to the embedded `ShortcutsManagementView` so the parent
-    /// header's `+` button can call into its add flow without duplicating
-    /// the cancel-form-then-begin-adding logic.
+    /// Bumped on `+` tap. The embedded `ShortcutsManagementView` watches
+    /// this via its `externalAddTrigger` parameter and opens a fresh add
+    /// form when it changes. Lets the parent header's `+` drive the same
+    /// flow as the embedded view's own internal `+`, without the view
+    /// re-mount that an `.id()` trick would cause.
     @State private var customAddRequest: UUID = UUID()
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().background(Color.caiDivider)
-
-            TabBar(
-                selection: $selectedTab,
-                tabs: [
-                    .init(id: .custom, label: "Custom", count: settings.shortcuts.count),
-                    .init(id: .builtIn, label: "Built-in", count: visibleBuiltInCount)
-                ]
-            )
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-
-            // Tab content. Embedded views render WITHOUT their own chrome
-            // (header/footer) so the parent's header + footer are the only
-            // ones visible — feels like one screen.
+        ManagementScreen(
+            icon: "bolt.circle.fill",
+            title: "Actions",
+            subtitle: headerSubtitle,
+            tabs: [
+                .init(id: .custom, label: "Custom", count: settings.shortcuts.count),
+                .init(id: .builtIn, label: "Built-in", count: visibleBuiltInCount)
+            ],
+            selection: $selectedTab,
+            customTabId: .custom,
+            onAdd: { customAddRequest = UUID() }
+        ) {
             switch selectedTab {
             case .custom:
                 ShortcutsManagementView(
                     onBack: onBack,
                     onBrowseExtensions: onBrowseExtensions,
-                    showsChrome: false
+                    showsChrome: false,
+                    externalAddTrigger: customAddRequest
                 )
-                .id(customAddRequest)  // forcing identity refresh allows external "+"
             case .builtIn:
                 BuiltInActionsContent()
             }
-
-            Spacer(minLength: 0)
-            Divider().background(Color.caiDivider)
-            footer
         }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "bolt.circle.fill")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.caiPrimary)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Actions")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.caiTextPrimary)
-
-                Text(headerSubtitle)
-                    .font(.system(size: 11))
-                    .foregroundColor(.caiTextSecondary)
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     private var headerSubtitle: String {
@@ -106,16 +76,5 @@ struct ActionsManagementView: View {
         BuiltInActionID.allCases.filter {
             !settings.hiddenBuiltInActions.contains($0.rawValue)
         }.count
-    }
-
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack(spacing: 12) {
-            KeyboardHint(key: "Esc", label: "Back")
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 }

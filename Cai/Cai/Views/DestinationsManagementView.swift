@@ -76,27 +76,25 @@ struct DestinationsManagementView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            screenHeader
-            Divider().background(Color.caiDivider)
-
-            TabBar(
-                selection: $selectedTab,
-                tabs: [
-                    .init(id: .custom, label: "Custom", count: customCount),
-                    .init(id: .builtIn, label: "Built-in", count: enabledBuiltInCount)
-                ]
-            )
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-
-            // Content
-            // ScrollViewReader lets us auto-scroll the editing/adding form into
-            // view so the screen doesn't appear to "jump" when content below
-            // the fold expands. Mirrors ShortcutsManagementView's pattern.
+        ManagementScreen(
+            icon: "paperplane.circle.fill",
+            title: "Destinations",
+            subtitle: headerSubtitle,
+            tabs: [
+                .init(id: .custom, label: "Custom", count: customCount),
+                .init(id: .builtIn, label: "Built-in", count: enabledBuiltInCount)
+            ],
+            selection: $selectedTab,
+            customTabId: .custom,
+            onAdd: beginAddingDestination
+        ) {
+            // Tab content rendered inside a chrome-stripped `List` so the
+            // Custom tab can use `.onMove` for drag-to-reorder. ScrollViewReader
+            // auto-scrolls the editing/adding form into view so the screen
+            // doesn't appear to "jump" when content below the fold expands.
+            // Mirrors `ShortcutsManagementView.content`.
             ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 4) {
+                List {
                     switch selectedTab {
                     case .builtIn:
                         builtInTabContent
@@ -104,84 +102,37 @@ struct DestinationsManagementView: View {
                         customTabContent
                     }
                 }
-                .padding(.vertical, 8)
-            }
-            // Auto-scroll when entering add or edit mode so the form
-            // doesn't render below the fold and require manual scroll.
-            // Animated to match the form's open transition.
-            .onChange(of: isAddingNew) { _, isAdding in
-                guard isAdding else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    proxy.scrollTo("addNewDestination", anchor: .top)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .onChange(of: isAddingNew) { _, isAdding in
+                    guard isAdding else { return }
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo("addNewDestination", anchor: .top)
+                    }
+                }
+                .onChange(of: editingDestinationId) { _, newId in
+                    guard let id = newId else { return }
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(id, anchor: .top)
+                    }
                 }
             }
-            .onChange(of: editingDestinationId) { _, newId in
-                guard let id = newId else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    proxy.scrollTo(id, anchor: .top)
-                }
-            }
-            }  // end ScrollViewReader
-            Spacer(minLength: 0)
-
-            Divider()
-                .background(Color.caiDivider)
-
-            // Footer
-            HStack {
-                KeyboardHint(key: "Esc", label: "Back")
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
         .onAppear {
             WindowController.acceptsFilterInput = false
         }
     }
 
-    // MARK: - Header
-
-    private var screenHeader: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "paperplane.circle.fill")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.caiPrimary)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Destinations")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.caiTextPrimary)
-
-                Text(headerSubtitle)
-                    .font(.system(size: 11))
-                    .foregroundColor(.caiTextSecondary)
-            }
-
-            Spacer()
-
-            // `+` only on the Custom tab — built-in destinations can't be
-            // added by the user. Always visible (even while editing) — same
-            // policy as ShortcutsManagementView.
-            if selectedTab == .custom {
-                Button(action: {
-                    cancelForm()
-                    resetForm()
-                    WindowController.passThrough = true
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isAddingNew = true
-                    }
-                }) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.caiPrimary)
-                }
-                .buttonStyle(.plain)
-                .help("Add a new destination")
-            }
+    /// Fired when the user taps the header's `+` button on the Custom tab.
+    /// Cancels any in-progress form (no discard prompt — same policy as
+    /// the editor's `×`) and opens a fresh add form.
+    private func beginAddingDestination() {
+        cancelForm()
+        resetForm()
+        WindowController.passThrough = true
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isAddingNew = true
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     private var customCount: Int {
@@ -207,85 +158,128 @@ struct DestinationsManagementView: View {
     // MARK: - Tab Content
 
     /// Built-in destinations — toggle-only rows (Replace Selection, Email,
-    /// Notes, Reminders). Pinned-first ordering since pin applies uniformly
-    /// across both tabs.
+    /// Notes, Reminders). Emits List rows directly so the parent's
+    /// chrome-stripped `List` can place them with the right insets.
+    @ViewBuilder
     private var builtInTabContent: some View {
-        VStack(spacing: 4) {
-            ForEach(settings.outputDestinations.filter { $0.isBuiltIn }) { dest in
-                builtInRow(dest)
-            }
+        ForEach(settings.outputDestinations.filter { $0.isBuiltIn }) { dest in
+            builtInRow(dest)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 0, trailing: 4))
+        }
 
-            if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled }) {
-                Text("macOS will ask for Automation permission on first use. If denied, re-enable in System Settings → Automation.")
-                    .font(.system(size: 10))
-                    .foregroundColor(.caiTextSecondary.opacity(0.5))
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-            }
+        if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled }) {
+            Text("macOS will ask for Automation permission on first use. If denied, re-enable in System Settings → Automation.")
+                .font(.system(size: 10))
+                .foregroundColor(.caiTextSecondary.opacity(0.5))
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
         }
     }
 
-    /// Custom destinations — pinned-first ordering, click-anywhere row, full
-    /// CRUD, inline edit form, browse-extensions affordance at the top
-    /// (matches ActionsManagementView Custom tab for visual consistency).
+    /// Custom destinations — pinned-first ordering, click-anywhere row,
+    /// full CRUD with hover-revealed share + delete trailing buttons,
+    /// inline edit form, drag-to-reorder via `.onMove`. Emits List rows
+    /// directly. Mirrors `ShortcutsManagementView.content`'s structure so
+    /// both Custom tabs feel identical.
+    @ViewBuilder
     private var customTabContent: some View {
-        VStack(spacing: 4) {
-            // Browse extensions at the top (matches Custom Actions tab).
-            if onBrowseExtensions != nil && !customDestinations.isEmpty && !isAddingNew && editingDestinationId == nil {
-                Button(action: { onBrowseExtensions?() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 10, weight: .medium))
-                        Text("Browse Community Extensions")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundColor(.caiPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+        // Browse extensions at the top (matches Custom Actions tab).
+        if onBrowseExtensions != nil && !customDestinations.isEmpty && !isAddingNew && editingDestinationId == nil {
+            Button(action: { onBrowseExtensions?() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 10, weight: .medium))
+                    Text("Browse Community Extensions")
+                        .font(.system(size: 11, weight: .medium))
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 8)
+                .foregroundColor(.caiPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
             }
+            .buttonStyle(.plain)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 0, trailing: 8))
+        }
 
+        if customDestinations.isEmpty && !isAddingNew {
+            ManagementEmptyState(
+                icon: "paperplane.circle",
+                title: "No custom destinations yet",
+                description: "Send results to webhooks, AppleScript, deeplinks, or shell commands.",
+                ctaLabel: onBrowseExtensions != nil ? "Browse Community Extensions" : nil,
+                ctaIcon: onBrowseExtensions != nil ? "square.grid.2x2" : nil,
+                ctaAction: onBrowseExtensions
+            )
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+        } else {
             ForEach(customDestinations) { dest in
-                if editingDestinationId == dest.id {
-                    destinationForm(isNew: false, destinationId: dest.id)
-                        .id(dest.id)  // ScrollViewReader anchor for editing
-                } else {
-                    customRow(dest)
+                Group {
+                    if editingDestinationId == dest.id {
+                        destinationForm(isNew: false, destinationId: dest.id)
+                    } else {
+                        customRow(dest)
+                    }
                 }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
             }
+            .onMove(perform: moveCustomDestination)
 
-            // Add form
             if isAddingNew {
                 destinationForm(isNew: true, destinationId: nil)
                     .id("addNewDestination")
-            }
-
-            // Empty state
-            if customDestinations.isEmpty && !isAddingNew {
-                VStack(spacing: 8) {
-                    Text("No custom destinations yet")
-                        .font(.system(size: 11))
-                        .foregroundColor(.caiTextSecondary.opacity(0.5))
-
-                    if onBrowseExtensions != nil {
-                        Button(action: { onBrowseExtensions?() }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "square.grid.2x2")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text("Browse Community Extensions")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundColor(.caiPrimary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
             }
         }
+
+        // Bottom "Add Destination" button — mirrors the "Add Action" button
+        // at the bottom of the Custom Actions tab. Hidden while a form is
+        // open so the user has one obvious surface to interact with.
+        if !isAddingNew && editingDestinationId == nil {
+            Button(action: { beginAddingDestination() }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Add Destination")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundColor(.caiPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.caiPrimary.opacity(0.1))
+                )
+            }
+            .buttonStyle(.plain)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+        }
+    }
+
+    /// Drag-to-reorder handler for the Custom tab. Operates on the
+    /// pinned-first `customDestinations` view, then re-sorts so the
+    /// pinned-first invariant holds: a row dragged across the
+    /// pinned/unpinned boundary snaps back to the boundary on drop.
+    /// Mirrors `ShortcutsManagementView.moveShortcut`.
+    private func moveCustomDestination(from source: IndexSet, to destination: Int) {
+        var working = customDestinations
+        working.move(fromOffsets: source, toOffset: destination)
+        let resorted = working.filter(\.pinned) + working.filter { !$0.pinned }
+        let builtIns = settings.outputDestinations.filter(\.isBuiltIn)
+        settings.outputDestinations = builtIns + resorted
     }
 
     /// Custom destinations ordered pinned-first (mirrors `CaiShortcut`
@@ -297,21 +291,30 @@ struct DestinationsManagementView: View {
 
     // MARK: - Built-in Row
 
+    /// Built-in destination row — matches `BuiltInActionsContent.actionRow`
+    /// and `ConnectorsSettingsView` so all "list of toggleable items"
+    /// surfaces in Settings share one visual vocabulary. Anatomy: 20pt-frame
+    /// leading icon (14pt medium, `caiPrimary` when on) + label + subtitle
+    /// + indigo switch on the right, wrapped in a `caiSurface.opacity(0.3)`
+    /// rounded card.
     private func builtInRow(_ dest: OutputDestination) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.caiSurface.opacity(0.6))
-                    .frame(width: 28, height: 28)
+        let isEnabled = dest.isEnabled
 
-                Image(systemName: dest.icon)
+        return HStack(spacing: 10) {
+            Image(systemName: dest.icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(isEnabled ? .caiPrimary : .caiTextSecondary.opacity(0.5))
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(dest.name)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.caiPrimary)
-            }
+                    .foregroundColor(.caiTextPrimary)
 
-            Text(dest.name)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.caiTextPrimary)
+                Text(builtInDestinationSubtitle(for: dest))
+                    .font(.system(size: 10))
+                    .foregroundColor(.caiTextSecondary.opacity(0.7))
+            }
 
             Spacer()
 
@@ -325,9 +328,33 @@ struct DestinationsManagementView: View {
             ))
             .toggleStyle(.switch)
             .controlSize(.mini)
+            .tint(.caiPrimary)
+            .labelsHidden()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.caiSurface.opacity(0.3))
+        )
+    }
+
+    /// Short, action-verb subtitle for a built-in destination — fills the
+    /// "scope/status hint" slot under the row's primary label. Falls back
+    /// to the type label for any future built-in not listed here.
+    private func builtInDestinationSubtitle(for dest: OutputDestination) -> String {
+        switch dest.name {
+        case "Replace Selection":
+            return "Paste over your selection in the source app"
+        case "Email":
+            return "Open a new draft in Mail"
+        case "Save to Notes":
+            return "Create a new note"
+        case "Create Reminder":
+            return "Add to your default list"
+        default:
+            return dest.type.label
+        }
     }
 
     // MARK: - Custom Row
@@ -389,6 +416,33 @@ struct DestinationsManagementView: View {
                     .background(Color.caiError.opacity(0.1))
                     .cornerRadius(4)
             }
+
+            // Share as extension — mirrors `shortcutRow`. Always visible
+            // trailing button (not hover-conditional) so the affordance
+            // stays discoverable for both Actions and Destinations.
+            Button(action: {
+                shareDestinationAsExtension(dest)
+            }) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .padding(4)
+            }
+            .buttonStyle(.plain)
+            .help("Share as extension")
+
+            // Delete — same row-level affordance as Actions. Editor's `⋯`
+            // menu still has a delete option for users who land there first.
+            Button(action: {
+                deleteDestination(destinationId: dest.id)
+            }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.caiTextSecondary.opacity(0.6))
+                    .padding(4)
+            }
+            .buttonStyle(.plain)
+            .help("Delete")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -513,7 +567,6 @@ struct DestinationsManagementView: View {
             onCancel: { cancelForm() }
         )
         editor
-            .frame(minHeight: editor.minHeight, maxHeight: editor.maxHeight)
             .formFieldShell()
     }
 

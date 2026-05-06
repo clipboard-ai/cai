@@ -51,7 +51,6 @@ struct LLMEditPopover: View {
                 onCancel: onCancel
             )
             editor
-                .frame(minHeight: editor.minHeight, maxHeight: editor.maxHeight)
                 .frame(width: 320)
                 .formFieldShell()
 

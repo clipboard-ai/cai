@@ -25,15 +25,23 @@ import SwiftUI
 /// redesign — `caiSurface`-tinted background, 0.5px separator border (or
 /// 1px `caiPrimary` on focus). Caller adds the rounded background; this
 /// view renders the editor itself with no chrome.
-struct MultilineTextEditor: NSViewRepresentable {
+///
+/// **Auto-expanding height (2026-05-06):** the editor measures its
+/// rendered content via `NSLayoutManager` and self-frames to that height,
+/// clamped to `[minLines, maxLines] * lineHeight`. Beyond `maxLines`, the
+/// inner `NSScrollView` scrolls. Caller does NOT add their own
+/// `.frame(minHeight:maxHeight:)` — the editor handles it.
+struct MultilineTextEditor: View {
     @Binding var text: String
     var placeholder: String = ""
     var monospaced: Bool = false
     var fontSize: CGFloat = 12
     /// Default visible-line count when the editor is empty. Combined with
-    /// `maxLines`, gives "2 lines tall by default, grow with content,
-    /// scroll beyond 4 lines" — matches Linear/Notion/Slack composer UX.
-    var minLines: Int = 2
+    /// `maxLines`, gives "1 line tall by default, grow with content,
+    /// scroll beyond 4 lines" — matches Linear / Notion / Apple Mail
+    /// composer UX. Two-line defaults are a web-form holdover; modern
+    /// macOS composers all start at one line and grow.
+    var minLines: Int = 1
     var maxLines: Int = 4
     /// When true, the editor takes first-responder focus once added to a
     /// window. Use for popovers where the user expects to start typing
@@ -45,6 +53,62 @@ struct MultilineTextEditor: NSViewRepresentable {
     var onCommit: (() -> Void)? = nil
     /// Fired when the user presses Esc. Same rationale as `onCommit`.
     var onCancel: (() -> Void)? = nil
+
+    /// Height of the rendered content as measured by `NSLayoutManager` —
+    /// updated whenever the text changes or the view is laid out. Drives
+    /// the outer frame so the editor grows/shrinks with content.
+    @State private var measuredHeight: CGFloat = 0
+
+    /// Smallest height the editor renders at — `minLines × lineHeight`.
+    /// The editor never shrinks below this even when empty.
+    private var minHeight: CGFloat { ceil(fontSize * 1.4 * CGFloat(minLines)) }
+    /// Largest height before scrolling kicks in — `maxLines × lineHeight`.
+    /// Beyond this, the `NSScrollView` clips and scrolls internally.
+    private var maxHeight: CGFloat { ceil(fontSize * 1.4 * CGFloat(maxLines)) }
+
+    /// Final clamped height fed into `.frame(height:)`. Initial render
+    /// (before measurement) uses `minHeight` so layout doesn't jump.
+    private var clampedHeight: CGFloat {
+        let target = measuredHeight > 0 ? measuredHeight : minHeight
+        return min(maxHeight, max(minHeight, target))
+    }
+
+    var body: some View {
+        _MultilineTextEditorRepresentable(
+            text: $text,
+            placeholder: placeholder,
+            monospaced: monospaced,
+            fontSize: fontSize,
+            autoFocus: autoFocus,
+            onCommit: onCommit,
+            onCancel: onCancel,
+            onMeasure: { height in
+                // Round to 0.5pt steps to suppress sub-pixel jitter as
+                // NSLayoutManager re-measures during typing.
+                let rounded = (height * 2).rounded() / 2
+                if abs(rounded - measuredHeight) > 0.5 {
+                    measuredHeight = rounded
+                }
+            }
+        )
+        .frame(height: clampedHeight)
+    }
+}
+
+/// Internal `NSViewRepresentable` that hosts the actual `NSTextView` /
+/// `NSScrollView` pair. The wrapping `MultilineTextEditor` View owns the
+/// `@State` height and frames this view accordingly.
+private struct _MultilineTextEditorRepresentable: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var monospaced: Bool
+    var fontSize: CGFloat
+    var autoFocus: Bool
+    var onCommit: (() -> Void)?
+    var onCancel: (() -> Void)?
+    /// Fired with the rendered content height (from `NSLayoutManager`)
+    /// after every text change and after initial layout.
+    var onMeasure: (CGFloat) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -73,8 +137,23 @@ struct MultilineTextEditor: NSViewRepresentable {
         textView.shouldAutoFocusOnFirstAppear = autoFocus
         textView.onCommit = onCommit
         textView.onCancel = onCancel
+        // Let NSTextView's text container resize horizontally to whatever
+        // the scroll view gives us — but never grow vertically beyond the
+        // scroll view's clip view (so word-wrap kicks in instead of the
+        // text running off the right edge).
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
 
         scrollView.documentView = textView
+
+        // Measure once on next runloop tick — the layout manager needs
+        // the view to be in a window with a known frame before
+        // `usedRect(for:)` returns meaningful values.
+        DispatchQueue.main.async { [onMeasure] in
+            measureHeight(textView, fontSize: fontSize, report: onMeasure)
+        }
         return scrollView
     }
 
@@ -91,16 +170,11 @@ struct MultilineTextEditor: NSViewRepresentable {
         // (parent's @State / bindings may have changed).
         textView.onCommit = onCommit
         textView.onCancel = onCancel
-    }
-
-    /// SwiftUI's frame helpers can read these to clamp height. Computed from
-    /// `fontSize × line-count + insets` so the math matches the rendered
-    /// text. ~1.4× line spacing matches NSTextView's default for system fonts.
-    var minHeight: CGFloat {
-        ceil(fontSize * 1.4 * CGFloat(minLines))
-    }
-    var maxHeight: CGFloat {
-        ceil(fontSize * 1.4 * CGFloat(maxLines))
+        // Re-measure on every update so external text changes (e.g. the
+        // form being reset for a new add) reflect in the editor height.
+        DispatchQueue.main.async { [onMeasure] in
+            measureHeight(textView, fontSize: fontSize, report: onMeasure)
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -112,9 +186,9 @@ struct MultilineTextEditor: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: MultilineTextEditor
+        var parent: _MultilineTextEditorRepresentable
 
-        init(_ parent: MultilineTextEditor) {
+        init(_ parent: _MultilineTextEditorRepresentable) {
             self.parent = parent
         }
 
@@ -123,8 +197,27 @@ struct MultilineTextEditor: NSViewRepresentable {
             if parent.text != textView.string {
                 parent.text = textView.string
             }
+            measureHeight(textView, fontSize: parent.fontSize, report: parent.onMeasure)
         }
     }
+}
+
+/// Free function (not a method) so it can be called from both the
+/// representable's lifecycle hooks and the coordinator's delegate
+/// callback without capturing self.
+///
+/// Asks the layout manager for the actual rendered text height, falling
+/// back to a single empty line when there's no content yet. The 1.4×
+/// line-height multiplier matches NSTextView's defaults for system
+/// fonts; we use it as a floor so an empty editor still gets one full
+/// line of breathing room (rather than collapsing to zero).
+private func measureHeight(_ textView: NSTextView, fontSize: CGFloat, report: (CGFloat) -> Void) {
+    guard let lm = textView.layoutManager, let tc = textView.textContainer else { return }
+    lm.ensureLayout(for: tc)
+    let used = lm.usedRect(for: tc)
+    let oneLine = ceil(fontSize * 1.4)
+    let height = ceil(max(used.height, oneLine) + 2 * textView.textContainerInset.height)
+    report(height)
 }
 
 // MARK: - NSTextView subclass with placeholder + key forwarding

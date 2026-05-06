@@ -7,11 +7,12 @@ import SwiftUI
 /// `DestinationsParentView` for Built-in + Custom destinations) so the
 /// user can switch context without leaving the screen.
 ///
-/// **Visual language:** echoes the chip vocabulary established in
-/// DESIGN.md — neutral surface for inactive tab, indigo wash + indigo
-/// label for active tab. Borderless segments with a hairline divider
-/// between them. Compact (28pt height) so it fits cleanly under the
-/// screen header without competing for vertical space.
+/// **Visual language:** macOS-native segmented-control look — recessed
+/// neutral track with a slightly raised neutral pill on the active tab.
+/// No indigo on this control: under the "indigo discipline" rule
+/// (DESIGN.md), tab indicators are passive structure, not outcome-
+/// producing affordances. Compact (28pt height) so it fits cleanly under
+/// the screen header without competing for vertical space.
 ///
 /// Generic over a tab identifier — typically a tiny enum like
 /// `enum ActionsTab { case custom, builtIn }` declared by the caller.
@@ -53,23 +54,25 @@ struct TabBar<Tab: Hashable>: View {
             HStack(spacing: 5) {
                 Text(tab.label)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(isActive ? .caiPrimary : .caiTextSecondary)
+                    .foregroundColor(isActive ? .caiTextPrimary : .caiTextSecondary)
                 if let count = tab.count {
                     Text("\(count)")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .monospacedDigit()
-                        .foregroundColor(
-                            isActive
-                                ? .caiPrimary.opacity(0.7)
-                                : .caiTextSecondary.opacity(0.6)
-                        )
+                        .foregroundColor(.caiTextSecondary.opacity(isActive ? 0.8 : 0.6))
                 }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(isActive ? Color.caiPrimary.opacity(0.12) : Color.clear)
+                    .fill(isActive ? Color(nsColor: .windowBackgroundColor) : Color.clear)
+                    .shadow(
+                        color: isActive ? Color.black.opacity(0.04) : .clear,
+                        radius: 0.5,
+                        x: 0,
+                        y: 0.5
+                    )
             )
             .contentShape(Rectangle())
         }
