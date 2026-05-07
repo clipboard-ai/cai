@@ -110,10 +110,28 @@ struct ShortcutsManagementView: View {
                 footer
             }
         }
+        // INCREMENTAL DRAG-FIX TEST step 5: re-add `.onChange(of:
+        // externalAddTrigger)` to wire the parent tab's `+` button. With
+        // `.id(customAddRequest)` also in place on the parent's embed,
+        // this `.onChange` typically won't fire (the new view instance has
+        // no "previous value"), but if it DOES fire (e.g., if SwiftUI
+        // sometimes reuses the instance), it should still work correctly.
         .onChange(of: externalAddTrigger) { _, _ in
             cancelForm()
             beginAdding()
         }
+        // ORIGINAL NOTE: previously had `.onChange(of: externalAddTrigger)`
+        // here that called `cancelForm() + beginAdding()` to wire the parent
+        // tab's `+` button. Removed because it appeared to break SwiftUI
+        // `List`'s drag-to-reorder gesture in the embedded view — `.onChange`
+        // on the body seems to interfere with how the inner List's NSTableView
+        // wires up its drag responder. The parent's `+` button now relies on
+        // the `.id(customAddRequest)` remount trick alone. Trade-off: the
+        // remounted view starts in normal browse mode (not add mode) — the
+        // user has to tap the inner "Add Action" row to open the form. To
+        // restore one-tap add from the parent header, we'd need a different
+        // wiring mechanism (e.g. an environment value, or a parent-owned
+        // binding for `isAddingNew`).
     }
 
     /// Top-right `+` always visible, even when a form is open. Clicking
@@ -182,100 +200,98 @@ struct ShortcutsManagementView: View {
         // view so the screen doesn't appear to "jump" when content below
         // the fold expands.
         ScrollViewReader { proxy in
-            List {
-                // Browse community extensions — at the top so discovery is
-                // the first affordance the eye lands on, not a footer
-                // afterthought. Hidden during edit/add to keep the form
-                // surface uncluttered. Empty state has its own browse CTA.
-                if onBrowseExtensions != nil && !settings.shortcuts.isEmpty && !isAddingNew && editingShortcutId == nil {
-                    Button(action: { onBrowseExtensions?() }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "square.grid.2x2")
-                                .font(.system(size: 10, weight: .medium))
-                            Text("Browse Community Extensions")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundColor(.caiPrimary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+        List {
+            // Browse community extensions — at the top so discovery is
+            // the first affordance the eye lands on, not a footer
+            // afterthought. Hidden during edit/add to keep the form
+            // surface uncluttered. Empty state has its own browse CTA.
+            if onBrowseExtensions != nil && !settings.shortcuts.isEmpty && !isAddingNew && editingShortcutId == nil {
+                Button(action: { onBrowseExtensions?() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 10, weight: .medium))
+                        Text("Browse Community Extensions")
+                            .font(.system(size: 11, weight: .medium))
                     }
-                    .buttonStyle(.plain)
+                    .foregroundColor(.caiPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 0, trailing: 8))
+            }
+
+            if settings.shortcuts.isEmpty && !isAddingNew {
+                emptyState
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 0, trailing: 8))
-                }
-
-                if settings.shortcuts.isEmpty && !isAddingNew {
-                    emptyState
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                } else {
-                    ForEach(orderedShortcuts) { shortcut in
-                        Group {
-                            if editingShortcutId == shortcut.id {
-                                shortcutForm(isNew: false, shortcutId: shortcut.id)
-                            } else {
-                                shortcutRow(shortcut)
-                            }
+                    .listRowInsets(EdgeInsets())
+            } else {
+                ForEach(orderedShortcuts) { shortcut in
+                    Group {
+                        if editingShortcutId == shortcut.id {
+                            shortcutForm(isNew: false, shortcutId: shortcut.id)
+                        } else {
+                            shortcutRow(shortcut)
                         }
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+                }
+                .onMove(perform: moveShortcut)
+
+                if isAddingNew {
+                    shortcutForm(isNew: true, shortcutId: nil)
+                        .id("addNewShortcut")  // ScrollViewReader anchor
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
-                    }
-                    .onMove(perform: moveShortcut)
-
-                    if isAddingNew {
-                        shortcutForm(isNew: true, shortcutId: nil)
-                            .id("addNewShortcut")  // ScrollViewReader anchor
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
-                    }
-                }
-
-                // Add button (when not already adding)
-                if !isAddingNew && editingShortcutId == nil {
-                    Button(action: { beginAdding() }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 12, weight: .medium))
-                            Text("Add Action")
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundColor(.caiPrimary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.caiPrimary.opacity(0.1))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
-                }
-
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            // Auto-scroll the form into view when entering edit / add mode so
-            // the screen doesn't appear to "jump" when the form expands below
-            // the fold. Animated to match the form's open transition (matches
-            // Apple HIG: animate layout changes; keep relevant content visible).
-            .onChange(of: editingShortcutId) { _, newId in
-                guard let id = newId else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    proxy.scrollTo(id, anchor: .top)
                 }
             }
-            .onChange(of: isAddingNew) { _, isAdding in
-                guard isAdding else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    proxy.scrollTo("addNewShortcut", anchor: .top)
+
+            // Add button (when not already adding)
+            if !isAddingNew && editingShortcutId == nil {
+                Button(action: { beginAdding() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Add Action")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.caiPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.caiPrimary.opacity(0.1))
+                    )
                 }
+                .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        // Auto-scroll the form into view when entering edit / add mode so
+        // the screen doesn't appear to "jump" when the form expands below
+        // the fold. Animated to match the form's open transition.
+        .onChange(of: editingShortcutId) { _, newId in
+            guard let id = newId else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                proxy.scrollTo(id, anchor: .top)
+            }
+        }
+        .onChange(of: isAddingNew) { _, isAdding in
+            guard isAdding else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                proxy.scrollTo("addNewShortcut", anchor: .top)
+            }
+        }
         }  // end ScrollViewReader
     }
 
@@ -360,32 +376,42 @@ struct ShortcutsManagementView: View {
 
             Spacer()
 
-            // Share as extension
-            Button(action: {
-                shareShortcutAsExtension(shortcut)
-            }) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .padding(4)
-            }
-            .buttonStyle(.plain)
-
-            // (Edit pencil removed — clicking anywhere on the row enters edit
-            // mode, see the .onTapGesture below.)
-
-            // Delete button
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    settings.shortcuts.removeAll { $0.id == shortcut.id }
+            // Linear-style trailing `…` menu — consolidates Edit, Share,
+            // Delete into one affordance. This pattern was chosen
+            // specifically because plain `.onTapGesture` on a List row
+            // breaks SwiftUI's drag-to-reorder gesture (mouse-down event
+            // is claimed by the tap recognizer, never reaches the List's
+            // drag responder). A `Menu` button is a self-contained click
+            // target — it doesn't claim drag events on the row body, so
+            // drag-to-reorder keeps working. Verified 2026-05-07.
+            Menu {
+                Button(action: { beginEditing(shortcut) }) {
+                    Label("Edit", systemImage: "pencil")
                 }
-            }) {
-                Image(systemName: "trash")
+                Button(action: { duplicateShortcut(shortcutId: shortcut.id) }) {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+                Button(action: { shareShortcutAsExtension(shortcut) }) {
+                    Label("Share as Extension", systemImage: "square.and.arrow.up")
+                }
+                Divider()
+                Button(role: .destructive, action: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        settings.shortcuts.removeAll { $0.id == shortcut.id }
+                    }
+                }) {
+                    Label("Delete", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .padding(4)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
@@ -394,13 +420,13 @@ struct ShortcutsManagementView: View {
                 .fill(isHovered ? Color.caiSurface.opacity(0.4) : Color.clear)
         )
         .contentShape(Rectangle())
-        // Clicking anywhere on the row that isn't an inner button (pin, share,
-        // delete) enters edit mode. SwiftUI routes taps to inner Buttons first,
-        // so this gesture only fires on the row's "empty" surface (name/value
-        // area, padding, spacer). Matches the macOS Settings convention.
-        .onTapGesture {
-            beginEditing(shortcut)
-        }
+        // **No `.onTapGesture` on the row.** A plain `.onTapGesture` on a
+        // SwiftUI `List` row claims the mouse-down event and breaks the
+        // drag-to-reorder gesture (verified 2026-05-07: `simultaneousGesture`,
+        // `.onTapGesture(count: 2)`, and other variants all exhibit the
+        // same conflict). Editing is exposed via the trailing `…` menu's
+        // "Edit" item — `Menu` is a self-contained click target that
+        // doesn't claim drag events on the row body.
         .onHover { hovering in
             hoveredShortcutId = hovering ? shortcut.id : nil
         }

@@ -59,9 +59,6 @@ struct DestinationsManagementView: View {
     // Setup fields
     @State private var formSetupFields: [SetupField] = []
 
-    // Pin to top (Custom tab only — built-in destinations stay in fixed order)
-    @State private var formPinned: Bool = false
-
     /// Whether the "Then run" chip editor is expanded inline. Auto-set to
     /// `true` when entering edit mode on a destination with non-empty
     /// `next`. Mirrors `ShortcutsManagementView.thenRunExpanded`.
@@ -88,32 +85,43 @@ struct DestinationsManagementView: View {
             customTabId: .custom,
             onAdd: beginAddingDestination
         ) {
-            // Tab content rendered inside a chrome-stripped `List` so the
-            // Custom tab can use `.onMove` for drag-to-reorder. ScrollViewReader
-            // auto-scrolls the editing/adding form into view so the screen
-            // doesn't appear to "jump" when content below the fold expands.
-            // Mirrors `ShortcutsManagementView.content`.
-            ScrollViewReader { proxy in
-                List {
-                    switch selectedTab {
-                    case .builtIn:
+            // Each tab gets its own root container so the Custom tab's
+            // `List + .onMove` doesn't sit inside a `switch`-produced
+            // `_ConditionalContent` (SwiftUI's drag-to-reorder gesture is
+            // flaky when wrapped in conditional content — the
+            // `.onMove` fails to register a drop indicator).
+            //
+            // - Built-in tab: simple `ScrollView { VStack }` — no List
+            //   needed, no drag.
+            // - Custom tab: chrome-stripped `List` with the ForEach.onMove
+            //   pattern, exactly mirroring `ShortcutsManagementView.content`
+            //   (which is known-working at the same structural level).
+            switch selectedTab {
+            case .builtIn:
+                ScrollView {
+                    VStack(spacing: 4) {
                         builtInTabContent
-                    case .custom:
+                    }
+                    .padding(.vertical, 8)
+                }
+            case .custom:
+                ScrollViewReader { proxy in
+                    List {
                         customTabContent
                     }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .onChange(of: isAddingNew) { _, isAdding in
-                    guard isAdding else { return }
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        proxy.scrollTo("addNewDestination", anchor: .top)
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .onChange(of: isAddingNew) { _, isAdding in
+                        guard isAdding else { return }
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            proxy.scrollTo("addNewDestination", anchor: .top)
+                        }
                     }
-                }
-                .onChange(of: editingDestinationId) { _, newId in
-                    guard let id = newId else { return }
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        proxy.scrollTo(id, anchor: .top)
+                    .onChange(of: editingDestinationId) { _, newId in
+                        guard let id = newId else { return }
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            proxy.scrollTo(id, anchor: .top)
+                        }
                     }
                 }
             }
@@ -158,26 +166,22 @@ struct DestinationsManagementView: View {
     // MARK: - Tab Content
 
     /// Built-in destinations — toggle-only rows (Replace Selection, Email,
-    /// Notes, Reminders). Emits List rows directly so the parent's
-    /// chrome-stripped `List` can place them with the right insets.
+    /// Notes, Reminders). Rendered inside a plain `ScrollView { VStack }`
+    /// (no List, no drag-to-reorder needed for the Built-in tab).
     @ViewBuilder
     private var builtInTabContent: some View {
         ForEach(settings.outputDestinations.filter { $0.isBuiltIn }) { dest in
             builtInRow(dest)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 0, trailing: 4))
+                .padding(.horizontal, 12)
         }
 
         if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled }) {
             Text("macOS will ask for Automation permission on first use. If denied, re-enable in System Settings → Automation.")
                 .font(.system(size: 10))
                 .foregroundColor(.caiTextSecondary.opacity(0.5))
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
         }
     }
 
@@ -269,24 +273,20 @@ struct DestinationsManagementView: View {
         }
     }
 
-    /// Drag-to-reorder handler for the Custom tab. Operates on the
-    /// pinned-first `customDestinations` view, then re-sorts so the
-    /// pinned-first invariant holds: a row dragged across the
-    /// pinned/unpinned boundary snaps back to the boundary on drop.
-    /// Mirrors `ShortcutsManagementView.moveShortcut`.
+    /// Drag-to-reorder handler for the Custom tab. No pinned-first
+    /// invariant (destinations don't have pinning anymore — see
+    /// `customRow`'s comment). User's drag order is the canonical order.
     private func moveCustomDestination(from source: IndexSet, to destination: Int) {
         var working = customDestinations
         working.move(fromOffsets: source, toOffset: destination)
-        let resorted = working.filter(\.pinned) + working.filter { !$0.pinned }
         let builtIns = settings.outputDestinations.filter(\.isBuiltIn)
-        settings.outputDestinations = builtIns + resorted
+        settings.outputDestinations = builtIns + working
     }
 
-    /// Custom destinations ordered pinned-first (mirrors `CaiShortcut`
-    /// ordering for action-list consistency).
+    /// Custom destinations in user's drag order. No pin-based reordering
+    /// (destinations don't have pinning).
     private var customDestinations: [OutputDestination] {
-        let custom = settings.outputDestinations.filter { !$0.isBuiltIn }
-        return custom.filter(\.pinned) + custom.filter { !$0.pinned }
+        settings.outputDestinations.filter { !$0.isBuiltIn }
     }
 
     // MARK: - Built-in Row
@@ -360,39 +360,26 @@ struct DestinationsManagementView: View {
     // MARK: - Custom Row
 
     /// Custom destination row — mirrors `shortcutRow` design language.
-    /// Click anywhere on the row to enter edit mode (no separate edit
-    /// button). Pin pattern: leading icon doubles as a pin toggle on hover
-    /// for unpinned items. Share/delete moved into the editor's `⋯` menu;
-    /// this row is for click-to-edit only.
+    /// Editing happens via the trailing `…` menu (no row-level click-to-
+    /// edit, since `.onTapGesture` would break List's drag-to-reorder).
+    /// **No pin button (2026-05-07):** destinations don't need pinning —
+    /// they're passive sinks, not commands competing for action-list
+    /// position. `showInActionList` controls visibility; drag-to-reorder
+    /// controls order within this management list.
     private func customRow(_ dest: OutputDestination) -> some View {
         let isHovered = hoveredDestinationId == dest.id
-        let showPinIcon = dest.pinned || isHovered
 
         return HStack(spacing: 12) {
-            // Leading icon — doubles as pin toggle on hover.
-            Button(action: { togglePinDestination(dest) }) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(dest.pinned
-                              ? Color.caiPrimary.opacity(0.15)
-                              : Color.caiSurface.opacity(0.6))
-                        .frame(width: 28, height: 28)
+            // Leading icon — purely decorative now (no pin toggle).
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.caiSurface.opacity(0.6))
+                    .frame(width: 28, height: 28)
 
-                    if showPinIcon {
-                        Image(systemName: dest.pinned ? "pin.fill" : "pin")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(dest.pinned
-                                             ? .caiPrimary
-                                             : .caiTextSecondary.opacity(0.5))
-                    } else {
-                        Image(systemName: dest.icon)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.caiPrimary)
-                    }
-                }
+                Image(systemName: dest.icon)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.caiPrimary)
             }
-            .buttonStyle(.plain)
-            .help(dest.pinned ? "Unpin" : "Pin to top")
 
             // Name + type
             VStack(alignment: .leading, spacing: 1) {
@@ -417,32 +404,42 @@ struct DestinationsManagementView: View {
                     .cornerRadius(4)
             }
 
-            // Share as extension — mirrors `shortcutRow`. Always visible
-            // trailing button (not hover-conditional) so the affordance
-            // stays discoverable for both Actions and Destinations.
-            Button(action: {
-                shareDestinationAsExtension(dest)
-            }) {
-                Image(systemName: "square.and.arrow.up")
+            // Linear-style trailing `…` menu — Edit / Duplicate / Share /
+            // Delete in one affordance. Mirrors `shortcutRow` for visual
+            // consistency. Crucially: a `Menu` button is a self-contained
+            // click target, so it doesn't claim mouse-down on the row body
+            // — `List`'s drag-to-reorder gesture continues to work. A plain
+            // `.onTapGesture` here would break drag (verified 2026-05-07).
+            Menu {
+                Button(action: {
+                    loadFormFromDestination(dest)
+                    WindowController.passThrough = true
+                    editingDestinationId = dest.id
+                }) {
+                    Label("Edit", systemImage: "pencil")
+                }
+                Button(action: { duplicateDestination(destinationId: dest.id) }) {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+                Button(action: { shareDestinationAsExtension(dest) }) {
+                    Label("Share as Extension", systemImage: "square.and.arrow.up")
+                }
+                Divider()
+                Button(role: .destructive, action: {
+                    deleteDestination(destinationId: dest.id)
+                }) {
+                    Label("Delete", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .padding(4)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .help("Share as extension")
-
-            // Delete — same row-level affordance as Actions. Editor's `⋯`
-            // menu still has a delete option for users who land there first.
-            Button(action: {
-                deleteDestination(destinationId: dest.id)
-            }) {
-                Image(systemName: "trash")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.caiTextSecondary.opacity(0.6))
-                    .padding(4)
-            }
-            .buttonStyle(.plain)
-            .help("Delete")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -451,30 +448,11 @@ struct DestinationsManagementView: View {
                 .fill(isHovered ? Color.caiSurface.opacity(0.4) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture {
-            loadFormFromDestination(dest)
-            WindowController.passThrough = true
-            editingDestinationId = dest.id
-        }
+        // No `.onTapGesture` on the row — would break List's drag-to-reorder
+        // (any tap-gesture variant claims mouse-down and the drag never
+        // initiates). Editing is exposed via the `…` menu's "Edit" item.
         .onHover { hovering in
             hoveredDestinationId = hovering ? dest.id : nil
-        }
-    }
-
-    /// Pin/unpin a custom destination. Maintains the pinned-first
-    /// invariant by re-sorting so a row visually moves on toggle.
-    private func togglePinDestination(_ dest: OutputDestination) {
-        guard let index = settings.outputDestinations.firstIndex(where: { $0.id == dest.id }) else { return }
-        withAnimation(.easeInOut(duration: 0.15)) {
-            var copy = settings.outputDestinations
-            copy[index].pinned.toggle()
-            // Pinned-first within the custom group; built-in stays first
-            // overall (separate tab now).
-            let builtIns = copy.filter(\.isBuiltIn)
-            let custom = copy.filter { !$0.isBuiltIn }
-            settings.outputDestinations = builtIns
-                + custom.filter(\.pinned)
-                + custom.filter { !$0.pinned }
         }
     }
 
@@ -570,23 +548,11 @@ struct DestinationsManagementView: View {
             .formFieldShell()
     }
 
-    /// Title row: pin (left) + H1 placeholder + ⋯ menu + × cancel.
+    /// Title row: H1 placeholder + ⋯ menu + × cancel. (No pin button —
+    /// destinations don't have pinning. See `customRow` for rationale.)
     @ViewBuilder
     private func destTitleRow(isNew: Bool, destinationId: UUID?) -> some View {
         HStack(spacing: 8) {
-            Button(action: { formPinned.toggle() }) {
-                Image(systemName: formPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(formPinned ? .caiPrimary : .caiTextSecondary.opacity(0.5))
-                    .frame(width: 24, height: 24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(formPinned ? Color.caiPrimary.opacity(0.12) : Color.clear)
-                    )
-            }
-            .buttonStyle(.plain)
-            .help(formPinned ? "Unpin from top" : "Pin to top of action list")
-
             TextField("Untitled destination", text: $formName)
                 .textFieldStyle(.plain)
                 .font(.system(size: 17, weight: .semibold))
@@ -986,8 +952,8 @@ struct DestinationsManagementView: View {
             || (formTypeTag == "webhook" && !isWebhookHeadersValid)
     }
 
-    /// Duplicate the destination — copy all fields, append " (Copy)" to name,
-    /// insert pinned-first within the custom group. Closes the editor.
+    /// Duplicate the destination — copy all fields, append " (Copy)" to
+    /// name, append at the end of the custom destinations list.
     private func duplicateDestination(destinationId: UUID) {
         guard let original = settings.outputDestinations.first(where: { $0.id == destinationId }) else { return }
         let copy = OutputDestination(
@@ -998,17 +964,10 @@ struct DestinationsManagementView: View {
             isBuiltIn: false,
             showInActionList: original.showInActionList,
             setupFields: original.setupFields,
-            next: original.next,
-            pinned: false  // duplicates start unpinned
+            next: original.next
         )
         withAnimation(.easeInOut(duration: 0.15)) {
-            var working = settings.outputDestinations
-            working.append(copy)
-            let builtIns = working.filter(\.isBuiltIn)
-            let custom = working.filter { !$0.isBuiltIn }
-            settings.outputDestinations = builtIns
-                + custom.filter(\.pinned)
-                + custom.filter { !$0.pinned }
+            settings.outputDestinations.append(copy)
         }
         cancelForm()
     }
@@ -1083,7 +1042,6 @@ struct DestinationsManagementView: View {
         formShowInActionList = dest.showInActionList
         formSetupFields = dest.setupFields
         formNext = dest.next
-        formPinned = dest.pinned
         // Auto-expand the chain editor if there are steps already.
         thenRunExpandedDest = !dest.next.isEmpty
 
@@ -1135,36 +1093,20 @@ struct DestinationsManagementView: View {
                 isBuiltIn: false,
                 showInActionList: formShowInActionList,
                 setupFields: formSetupFields,
-                next: nextSteps,
-                pinned: formPinned
+                next: nextSteps
             )
             withAnimation(.easeInOut(duration: 0.15)) {
-                // Insert maintaining pinned-first invariant within the
-                // custom group (built-in stays before custom overall).
-                var working = settings.outputDestinations
-                working.append(dest)
-                let builtIns = working.filter(\.isBuiltIn)
-                let custom = working.filter { !$0.isBuiltIn }
-                settings.outputDestinations = builtIns
-                    + custom.filter(\.pinned)
-                    + custom.filter { !$0.pinned }
+                settings.outputDestinations.append(dest)
             }
         } else if let id = destinationId,
                   let index = settings.outputDestinations.firstIndex(where: { $0.id == id }) {
             withAnimation(.easeInOut(duration: 0.15)) {
-                var copy = settings.outputDestinations
-                copy[index].name = trimmedName
-                copy[index].icon = iconForTypeTag(formTypeTag)
-                copy[index].type = destType
-                copy[index].showInActionList = formShowInActionList
-                copy[index].setupFields = formSetupFields
-                copy[index].next = nextSteps
-                copy[index].pinned = formPinned
-                let builtIns = copy.filter(\.isBuiltIn)
-                let custom = copy.filter { !$0.isBuiltIn }
-                settings.outputDestinations = builtIns
-                    + custom.filter(\.pinned)
-                    + custom.filter { !$0.pinned }
+                settings.outputDestinations[index].name = trimmedName
+                settings.outputDestinations[index].icon = iconForTypeTag(formTypeTag)
+                settings.outputDestinations[index].type = destType
+                settings.outputDestinations[index].showInActionList = formShowInActionList
+                settings.outputDestinations[index].setupFields = formSetupFields
+                settings.outputDestinations[index].next = nextSteps
             }
         }
 
@@ -1194,7 +1136,6 @@ struct DestinationsManagementView: View {
         formShellCommand = ""
         formSetupFields = []
         formNext = []
-        formPinned = false
         thenRunExpandedDest = false
         openHelpPopoverDest = nil
     }
