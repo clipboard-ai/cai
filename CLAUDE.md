@@ -3,6 +3,7 @@
 Quick reference for Claude Code. For the full docs map (when to read what), see [`_docs/INDEX.md`](_docs/INDEX.md).
 
 ## Design System
+
 Always read [`docs/design/DESIGN.md`](docs/design/DESIGN.md) before making any visual or UI decisions.
 All color tokens, typography sizes, spacing, border radii, animation curves, and component patterns are defined there.
 Do not deviate from the design system without explicit user approval.
@@ -10,7 +11,7 @@ In QA mode, flag any code that doesn't match DESIGN.md.
 
 ## What is Cai?
 
-Native macOS menu bar clipboard manager (SwiftUI + AppKit). User presses **Option+C** anywhere, Cai detects the clipboard content type and shows context-aware actions powered by an LLM. Privacy-first and local-by-default — no telemetry; runs fully on-device with the built-in MLX model or Apple Intelligence. Optional cloud providers (OpenRouter, Anthropic) available for power users who want frontier-model quality.
+Native macOS action layer (SwiftUI + AppKit). User presses **Option+C** anywhere, Cai detects the selected content type and shows context-aware actions powered by an LLM. Privacy-first and local-by-default — no telemetry; runs fully on-device with the built-in MLX model or Apple Intelligence. Optional cloud providers (OpenRouter, Anthropic) available for power users who want frontier-model quality.
 
 ## Build & Run
 
@@ -109,6 +110,7 @@ Tests in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ cases covering all co
 ## Common Tasks
 
 ### Adding a New LLM Action
+
 1. Add case to `LLMAction` enum in `ActionItem.swift`
 2. Add method to `LLMService.swift` (with `appContext` parameter)
 3. Add to `ActionGenerator.swift` for relevant content types
@@ -116,33 +118,39 @@ Tests in `Cai/CaiTests/ContentDetectorTests.swift` — 40+ cases covering all co
 5. Add title in `llmActionTitle()` in `ActionListWindow.swift`
 
 ### Adding a New Content Type
+
 1. Add case to `ContentType` in `ContentDetector.swift`
 2. Add detection logic in `detect()` (respects priority order)
 3. Add action generation in `ActionGenerator.swift`
 4. Add tests in `ContentDetectorTests.swift`
 
 ### Adding a New Built-in Destination
+
 1. Add static let in `BuiltInDestinations.swift` with a fixed UUID
 2. Add to `BuiltInDestinations.all` array
 3. Note: existing users won't get new built-ins (they loaded from persisted data). Consider a migration in `CaiSettings.init()`.
 
 ### Adding a New Setting
+
 1. Add key to `CaiSettings.Keys`
 2. Add `@Published` property with `didSet` persistence
 3. Initialize in `CaiSettings.init()`
 4. Add UI in `SettingsView.swift`
 
 ### Adding a New Community Extension
+
 1. Create `extensions/<slug>/extension.yaml` in the [cai-extensions](https://github.com/cai-layer/cai-extensions) repo
 2. Add entry to `index.json` with slug, name, description, author, version, icon, type, tags
 3. YAML must start with `# cai-extension` header
 4. PR validation runs automatically (checks format, HTTPS for webhooks, author match)
 
 ### Building a DMG
+
 See `_docs/process/dmg-assets/BUILD-DMG.md` for the full process.
 
 ## Important Gotchas
 
+- **Never put `.onTapGesture` on a SwiftUI `List` row** — silently breaks drag-to-reorder (`.onMove`). Use a trailing `Menu` or `Button` instead. See [`_docs/architecture/SWIFTUI_GOTCHAS.md`](_docs/architecture/SWIFTUI_GOTCHAS.md) for the full bisect + workarounds.
 - **Never use `.id(index)` on LazyVStack rows** — use `.id(action.id)` to prevent stale cached views when filtering
 - **KeyEventHostingView should NOT have an `onKeyDown` handler** — the local event monitor handles everything; adding `keyDown` causes double-handling
 - **Filter uses word-prefix matching** — `anyWordHasPrefix()` splits title on spaces, checks `hasPrefix` per word. "note" matches "Save to Notes", "ote" does not.
@@ -180,3 +188,7 @@ See `_docs/process/dmg-assets/BUILD-DMG.md` for the full process.
 - SF Symbols for all icons
 - Color constants in `CaiColors.swift` (system colors, supports light/dark)
 - Concise commit messages describing the "why" not the "what"
+
+## PR Sizing
+
+- **Ship while the diff is still reviewable line-by-line.** ~300 lines is the sweet spot, ~1,000 is the limit.

@@ -13,16 +13,13 @@ import SwiftUI
 /// - The two tabs use different row patterns intentionally:
 ///   - Custom: full-CRUD row + inline edit form (`ShortcutsManagementView`)
 ///   - Built-in: hide/show toggle row (`BuiltInActionsContent`)
-///
-/// **Note (2026-05-07):** previously composed `ManagementScreen` (the
-/// generic shell shared with Destinations), but that broke SwiftUI
-/// `List`'s drag-to-reorder gesture in the embedded
-/// `ShortcutsManagementView` for reasons not fully understood — likely
-/// related to how the generic ViewBuilder closure interacts with
-/// NSTableView's drag responder chain. Reverted to direct VStack
-/// composition (matching the known-working structure from commit
-/// 4be222d) until we figure out a way to share the shell without
-/// breaking drag.
+/// - Container chrome (header + TabBar + footer) is unified via
+///   `ManagementScreen` so this screen and `DestinationsManagementView`
+///   share the same shell. Note: during the 2026-05-07 drag-to-reorder
+///   bisect, `ManagementScreen` was wrongly suspected and Actions was
+///   temporarily reverted to a hand-rolled VStack. The actual culprit was
+///   `.onTapGesture` on the row; `ManagementScreen` is innocent and
+///   restored here. See `_docs/architecture/SWIFTUI_GOTCHAS.md`.
 struct ActionsManagementView: View {
     @ObservedObject var settings = CaiSettings.shared
     let onBack: () -> Void
@@ -34,29 +31,28 @@ struct ActionsManagementView: View {
 
     @State private var selectedTab: Tab = .custom
 
-    /// Reference to the embedded `ShortcutsManagementView`'s identity. The
-    /// parent header's `+` button bumps this UUID to remount the inner
-    /// view in a fresh-add state.
+    /// Bumped on `+` tap. The embedded `ShortcutsManagementView` watches
+    /// this via `externalAddTrigger` + `.onChange` and opens a fresh add
+    /// form when it changes. Do NOT also add `.id(customAddRequest)` here
+    /// — that remounts the child and `.onChange` won't fire on the fresh
+    /// instance. See `_docs/architecture/SWIFTUI_GOTCHAS.md`.
     @State private var customAddRequest: UUID = UUID()
 
     var body: some View {
-        // INCREMENTAL DRAG-FIX TEST: re-adding parent VStack + TabBar
-        // wrapper to see if it breaks drag. If drag still works, the
-        // wrapper isn't the killer.
-        VStack(spacing: 0) {
-            header
-            Divider().background(Color.caiDivider)
-
-            TabBar(
-                selection: $selectedTab,
-                tabs: [
-                    .init(id: .custom, label: "Custom", count: settings.shortcuts.count),
-                    .init(id: .builtIn, label: "Built-in", count: visibleBuiltInCount)
-                ]
-            )
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-
+        ManagementScreen(
+            icon: "bolt.circle.fill",
+            title: "Actions",
+            subtitle: headerSubtitle,
+            tabs: [
+                .init(id: .custom, label: "Custom", count: settings.shortcuts.count),
+                .init(id: .builtIn, label: "Built-in", count: visibleBuiltInCount)
+            ],
+            selection: $selectedTab,
+            customTabId: .custom,
+            onAdd: { customAddRequest = UUID() }
+        ) {
+            // Tab content. Embedded views render WITHOUT their own chrome
+            // (header/footer) so the parent's shell is the only chrome.
             switch selectedTab {
             case .custom:
                 ShortcutsManagementView(
@@ -65,61 +61,10 @@ struct ActionsManagementView: View {
                     showsChrome: false,
                     externalAddTrigger: customAddRequest
                 )
-                // NOTE (2026-05-07): no `.id(customAddRequest)` here on
-                // purpose. With `.id`, the embedded view remounts on every
-                // `+` tap — fresh instance, no previous `externalAddTrigger`
-                // value, so `.onChange` never fires and the add form
-                // doesn't open. Without `.id`, the view stays mounted and
-                // `.onChange(of: externalAddTrigger)` in the body fires
-                // each time the parent bumps the UUID, calling
-                // `cancelForm() + beginAdding()`. Same effect, working
-                // wiring.
             case .builtIn:
                 BuiltInActionsContent()
             }
-
-            Spacer(minLength: 0)
-            Divider().background(Color.caiDivider)
-            footer
         }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "bolt.circle.fill")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.caiPrimary)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Actions")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.caiTextPrimary)
-
-                Text(headerSubtitle)
-                    .font(.system(size: 11))
-                    .foregroundColor(.caiTextSecondary)
-            }
-
-            Spacer()
-
-            // `+` only on the Custom tab. Bumps `customAddRequest` to
-            // remount the embedded view in fresh-add state.
-            if selectedTab == .custom {
-                Button(action: {
-                    customAddRequest = UUID()
-                }) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.caiPrimary)
-                }
-                .buttonStyle(.plain)
-                .help("Add a new custom action")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     private var headerSubtitle: String {
@@ -137,16 +82,5 @@ struct ActionsManagementView: View {
         BuiltInActionID.allCases.filter {
             !settings.hiddenBuiltInActions.contains($0.rawValue)
         }.count
-    }
-
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack(spacing: 12) {
-            KeyboardHint(key: "Esc", label: "Back")
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 }

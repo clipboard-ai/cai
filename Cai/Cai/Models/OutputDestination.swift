@@ -20,9 +20,16 @@ struct OutputDestination: Codable, Identifiable, Equatable {
     /// Shortcuts — see `ChainStep`. Empty means no chaining (default).
     /// Cycle detection + max-depth-10 guard the executor against runaway loops.
     var next: [ChainStep]
-    /// Pinned destinations show at the top of the destinations list in
-    /// Settings + the action list. Mirrors `CaiShortcut.pinned`. Defaults
-    /// to false; existing destinations decode as unpinned (backward-compat).
+    /// **Deprecated 2026-05-07.** Destination pinning was removed from
+    /// the UI — destinations are passive sinks (where results go), not
+    /// commands competing for action-list position. `showInActionList`
+    /// controls visibility; user's drag order controls position.
+    ///
+    /// The field is retained on the model so existing user data (with
+    /// `pinned: true` from prior versions) decodes without migration. No
+    /// code reads it; new destinations are always created with the
+    /// default `false`. Safe to drop in a future release alongside a
+    /// `CaiSettings` migration.
     var pinned: Bool
 
     init(

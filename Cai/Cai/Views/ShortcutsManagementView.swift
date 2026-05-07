@@ -110,28 +110,16 @@ struct ShortcutsManagementView: View {
                 footer
             }
         }
-        // INCREMENTAL DRAG-FIX TEST step 5: re-add `.onChange(of:
-        // externalAddTrigger)` to wire the parent tab's `+` button. With
-        // `.id(customAddRequest)` also in place on the parent's embed,
-        // this `.onChange` typically won't fire (the new view instance has
-        // no "previous value"), but if it DOES fire (e.g., if SwiftUI
-        // sometimes reuses the instance), it should still work correctly.
+        // Wires the tabbed parent's `+` button: each time the parent
+        // bumps `externalAddTrigger`, cancel any in-progress form and
+        // open a fresh add form. The parent must NOT also wrap this view
+        // in `.id(customAddRequest)` — `.id` remounts the view, the new
+        // instance has no "previous" trigger value, and `.onChange` won't
+        // fire. See `_docs/architecture/SWIFTUI_GOTCHAS.md`.
         .onChange(of: externalAddTrigger) { _, _ in
             cancelForm()
             beginAdding()
         }
-        // ORIGINAL NOTE: previously had `.onChange(of: externalAddTrigger)`
-        // here that called `cancelForm() + beginAdding()` to wire the parent
-        // tab's `+` button. Removed because it appeared to break SwiftUI
-        // `List`'s drag-to-reorder gesture in the embedded view — `.onChange`
-        // on the body seems to interfere with how the inner List's NSTableView
-        // wires up its drag responder. The parent's `+` button now relies on
-        // the `.id(customAddRequest)` remount trick alone. Trade-off: the
-        // remounted view starts in normal browse mode (not add mode) — the
-        // user has to tap the inner "Add Action" row to open the form. To
-        // restore one-tap add from the parent header, we'd need a different
-        // wiring mechanism (e.g. an environment value, or a parent-owned
-        // binding for `isAddingNew`).
     }
 
     /// Top-right `+` always visible, even when a form is open. Clicking
