@@ -163,13 +163,25 @@ enum ModelCatalog {
     /// Curated models for the settings picker.
     /// Kept intentionally small — only well-tested models. Power users can install
     /// any other MLX model via the "Other (HuggingFace ID)" input.
-    /// Note: Qwen3 / Qwen3.5 family is excluded — they default to "thinking mode"
-    /// which streams chain-of-thought reasoning to the user, breaking Cai's clipboard UX.
-    /// Qwen3.5 2B was tested and showed quality issues (hallucinations, missed errors).
-    /// mlx-swift-lm doesn't currently expose `enable_thinking=False`. Revisit in v1.4.
+    ///
+    /// **Selection criteria** (see `_docs/architecture/MODEL-EVALUATIONS.md`):
+    /// 1. MLX format on `mlx-community` (loads via `mlx-swift-lm` without conversion)
+    /// 2. No thinking mode by default — Cai cannot strip `<think>` tokens reliably
+    ///    mid-stream, and `mlx-swift-lm` doesn't expose `enable_thinking=False`.
+    ///    Qwen3-Instruct-2507 ships as a dedicated non-thinking branch (no flag
+    ///    needed); Qwen3.5 unified thinking models remain excluded.
+    /// 3. Apache 2.0 / MIT permissive license
+    /// 4. Instruct-tuned variant (base models hallucinate too aggressively)
+    ///
+    /// Round 3 (May 2026) kept Ministral as default — it still wins the grammar
+    /// test against Qwen3-4B at 4-bit. Qwen3-4B is added as a peer for users
+    /// who prefer stronger reasoning + cleaner summaries (no markdown leak).
+    /// Qwen2.5-14B replaces Qwen2.5-7B as the 16 GB+ tier — same family, better
+    /// quality, still fits comfortably in 16 GB unified memory.
     static let curatedModels: [(id: String, name: String, size: String)] = [
         ("mlx-community/Ministral-3-3B-Instruct-2512-4bit", "Ministral 3B", "~1.8 GB"),
-        ("mlx-community/Qwen2.5-7B-Instruct-4bit", "Qwen 2.5 7B (16 GB+ RAM)", "~4.3 GB"),
+        ("mlx-community/Qwen3-4B-Instruct-2507-4bit", "Qwen3 4B Instruct", "~2.3 GB"),
+        ("mlx-community/Qwen2.5-14B-Instruct-4bit", "Qwen 2.5 14B (16 GB+ RAM)", "~8.3 GB"),
     ]
 }
 

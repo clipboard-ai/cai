@@ -605,6 +605,14 @@ struct SettingsView: View {
                     ForEach(ModelCatalog.curatedModels, id: \.id) { model in
                         Text("\(model.name) (\(model.size))").tag(model.id)
                     }
+                    // If a custom HuggingFace model is loaded (i.e. one that's not
+                    // in the curated list), expose it as a Picker option so the
+                    // field shows its name instead of rendering blank — SwiftUI
+                    // requires a tag match to display a selection label.
+                    if !settings.builtInModelId.isEmpty
+                        && !ModelCatalog.curatedModels.contains(where: { $0.id == settings.builtInModelId }) {
+                        Text(settings.builtInModelDisplayName).tag(settings.builtInModelId)
+                    }
                     Divider()
                     Text("Other (HuggingFace ID)...").tag(Self.customModelTag)
                 }
