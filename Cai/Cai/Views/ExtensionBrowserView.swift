@@ -212,26 +212,37 @@ struct ExtensionBrowserView: View {
 
             Spacer()
 
-            // Install button
+            // Install button. NB: we use the `Button { action } label: { … }`
+            // form rather than the `Button(_ title: String, action:)` short
+            // form because modifiers like `.padding` and `.background` applied
+            // *outside* the Button only affect layout, not the hit area —
+            // clicks landing on the padded margin would miss the button. The
+            // explicit label + `.contentShape(Rectangle())` makes the entire
+            // styled rectangle a click target.
             if isInstalling {
                 ProgressView()
                     .scaleEffect(0.6)
                     .frame(width: 60)
             } else {
-                Button(isInstalled ? "Installed" : "Install") {
+                Button {
                     if isInstalled {
                         uninstallExtension(entry)
                     } else {
                         Task { await installExtension(entry) }
                     }
+                } label: {
+                    Text(isInstalled ? "Installed" : "Install")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(isInstalled ? .caiTextSecondary : .white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(isInstalled ? Color.caiSurface.opacity(0.6) : Color.caiPrimary)
+                        )
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isInstalled ? .caiTextSecondary : .white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(isInstalled ? Color.caiSurface.opacity(0.6) : Color.caiPrimary)
-                .cornerRadius(5)
             }
         }
         .padding(.horizontal, 8)
@@ -304,15 +315,18 @@ struct ExtensionBrowserView: View {
     }
 
     private func saveParsedExtension(_ parsed: ExtensionParser.ParsedExtension, slug: String) {
+        let name: String
         let importedChain: [ChainStep]
         switch parsed {
         case .shortcut(let shortcut, _, _):
+            name = shortcut.name
             importedChain = shortcut.next
             // Avoid duplicates by name
             if !settings.shortcuts.contains(where: { $0.name == shortcut.name }) {
                 settings.shortcuts.append(shortcut)
             }
         case .destination(let destination, _, _):
+            name = destination.name
             importedChain = destination.next
             if !settings.outputDestinations.contains(where: { $0.name == destination.name }) {
                 settings.outputDestinations.append(destination)
@@ -320,23 +334,16 @@ struct ExtensionBrowserView: View {
         }
         settings.installedExtensions.insert(slug)
 
-        // If the imported chain references items not on this Mac, surface a
-        // toast so the user knows the chain isn't yet runnable end-to-end.
-        // The persistent badge on the row is the durable indicator; this toast
-        // is a one-shot heads-up at install time.
-        let missing = settings.unresolvedChainSteps(in: importedChain)
-        if !missing.isEmpty {
-            let message: String
-            if missing.count == 1 {
-                message = "Installed. Chain needs: \(missing[0])"
-            } else {
-                message = "Installed. \(missing.count) chain steps need setup"
-            }
-            NotificationCenter.default.post(
-                name: .caiShowToast, object: nil,
-                userInfo: ["message": message]
-            )
-        }
+        // Standard install toast — augmented with a chain-deps suffix when
+        // the imported chain references items not installed locally. The
+        // persistent badge on the row is the durable indicator; this toast
+        // is a one-shot heads-up at install time. Same toast format as the
+        // clipboard install path in `ActionListWindow.confirmInstallExtension`.
+        NotificationCenter.default.post(
+            name: .caiShowToast, object: nil,
+            userInfo: ["message": ExtensionParser.installToastMessage(
+                name: name, chain: importedChain, settings: settings)]
+        )
     }
 
     // MARK: - Uninstall

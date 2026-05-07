@@ -305,6 +305,36 @@ struct ExtensionParser {
         }
     }
 
+    /// Builds the post-install toast message for an imported extension.
+    ///
+    /// Two install paths exist (clipboard install in `ActionListWindow`,
+    /// Browse Extensions install in `ExtensionBrowserView`); both call this
+    /// so the toast format stays in sync.
+    ///
+    /// - When the imported chain is empty or fully resolves locally, returns
+    ///   the plain `"<verb>: <name>"` form (matches pre-chain behavior).
+    /// - When the chain references items not installed on this Mac, appends
+    ///   a `— chain needs: <names>` suffix so the user has actionable detail
+    ///   without needing to inspect the row's badge.
+    /// - Apple Shortcuts and inline LLM steps are not checked here (see
+    ///   `CaiSettings.unresolvedChainSteps(in:)` for the rationale).
+    ///
+    /// `verb` defaults to `"Installed"` but accepts `"Updated"` for the
+    /// existing-by-name update path.
+    static func installToastMessage(
+        name: String,
+        chain: [ChainStep],
+        settings: CaiSettings,
+        verb: String = "Installed"
+    ) -> String {
+        let missing = settings.unresolvedChainSteps(in: chain)
+        guard !missing.isEmpty else { return "\(verb): \(name)" }
+        if missing.count == 1 {
+            return "\(verb): \(name) — chain needs: \(missing[0])"
+        }
+        return "\(verb): \(name) — \(missing.count) chain steps need setup"
+    }
+
     /// Serializes `[ChainStep]` to YAML for share-as-extension. Returns an
     /// empty string when steps are empty (no `next:` section emitted).
     ///

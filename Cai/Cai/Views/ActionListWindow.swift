@@ -1617,36 +1617,35 @@ struct ActionListWindow: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
 
-            // Actions
-            HStack(spacing: 10) {
-                Button(action: {
+            // Actions — mirrors the Cancel/Save row at the bottom of the
+            // action editor (`ShortcutsManagementView`). Right-aligned,
+            // content-hugging, with text-only Cancel and an indigo pill for
+            // Install. Avoids the full-width "stretched dialog button" look
+            // in favor of the pattern used everywhere else in the app.
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel") {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showExtensionConfirm = false
                         pendingExtension = nil
                     }
-                }) {
-                    Text("Cancel")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.caiTextPrimary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
                 }
                 .buttonStyle(.plain)
-                .background(Color.caiSurface.opacity(0.4))
-                .cornerRadius(6)
+                .font(.system(size: 12))
+                .foregroundColor(.caiTextSecondary)
 
-                Button(action: {
-                    confirmInstallExtension()
-                }) {
+                Button(action: { confirmInstallExtension() }) {
                     Text("Install")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 14)
                         .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6).fill(Color.caiPrimary)
+                        )
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .background(Color.caiPrimary)
-                .cornerRadius(6)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
@@ -1681,6 +1680,7 @@ struct ActionListWindow: View {
 
     // MARK: - Extension Install
 
+
     private func installExtension() {
         do {
             let parsed = try ExtensionParser.parse(text)
@@ -1706,19 +1706,22 @@ struct ActionListWindow: View {
             if let index = settings.shortcuts.firstIndex(where: { $0.name == shortcut.name }) {
                 settings.shortcuts[index].type = shortcut.type
                 settings.shortcuts[index].value = shortcut.value
+                settings.shortcuts[index].next = shortcut.next
                 onDismiss()
                 NotificationCenter.default.post(
-                    name: .caiShowToast,
-                    object: nil,
-                    userInfo: ["message": "Updated: \(shortcut.name)"]
+                    name: .caiShowToast, object: nil,
+                    userInfo: ["message": ExtensionParser.installToastMessage(
+                        name: shortcut.name, chain: shortcut.next,
+                        settings: settings, verb: "Updated")]
                 )
             } else {
                 settings.shortcuts.append(shortcut)
                 onDismiss()
                 NotificationCenter.default.post(
-                    name: .caiShowToast,
-                    object: nil,
-                    userInfo: ["message": "Installed: \(shortcut.name)"]
+                    name: .caiShowToast, object: nil,
+                    userInfo: ["message": ExtensionParser.installToastMessage(
+                        name: shortcut.name, chain: shortcut.next,
+                        settings: settings)]
                 )
             }
 
@@ -1729,19 +1732,22 @@ struct ActionListWindow: View {
                 settings.outputDestinations[index].icon = destination.icon
                 settings.outputDestinations[index].showInActionList = destination.showInActionList
                 settings.outputDestinations[index].setupFields = destination.setupFields
+                settings.outputDestinations[index].next = destination.next
                 onDismiss()
                 NotificationCenter.default.post(
-                    name: .caiShowToast,
-                    object: nil,
-                    userInfo: ["message": "Updated: \(destination.name)"]
+                    name: .caiShowToast, object: nil,
+                    userInfo: ["message": ExtensionParser.installToastMessage(
+                        name: destination.name, chain: destination.next,
+                        settings: settings, verb: "Updated")]
                 )
             } else {
                 settings.outputDestinations.append(destination)
                 onDismiss()
                 NotificationCenter.default.post(
-                    name: .caiShowToast,
-                    object: nil,
-                    userInfo: ["message": "Installed: \(destination.name)"]
+                    name: .caiShowToast, object: nil,
+                    userInfo: ["message": ExtensionParser.installToastMessage(
+                        name: destination.name, chain: destination.next,
+                        settings: settings)]
                 )
             }
         }
