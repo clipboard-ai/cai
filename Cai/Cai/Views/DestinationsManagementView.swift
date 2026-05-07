@@ -368,6 +368,10 @@ struct DestinationsManagementView: View {
     /// controls order within this management list.
     private func customRow(_ dest: OutputDestination) -> some View {
         let isHovered = hoveredDestinationId == dest.id
+        // Names the chain references that aren't installed locally — flagged
+        // via a warning glyph so the user can fix the chain before running it.
+        // Mirrors the same pattern in `ShortcutsManagementView.shortcutRow`.
+        let unresolvedSteps = settings.unresolvedChainSteps(in: dest.next)
 
         return HStack(spacing: 12) {
             // Leading icon — purely decorative now (no pin toggle).
@@ -390,6 +394,16 @@ struct DestinationsManagementView: View {
                 Text(dest.type.label)
                     .font(.system(size: 11))
                     .foregroundColor(.caiTextSecondary)
+            }
+
+            // Chain dependency warning (icon-only — leaves the existing
+            // "Setup needed" pill below as the field-config indicator;
+            // these signal different problems and shouldn't merge).
+            if !unresolvedSteps.isEmpty {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.caiError)
+                    .help("Chain needs: \(unresolvedSteps.joined(separator: ", "))")
             }
 
             Spacer()
@@ -1220,6 +1234,12 @@ struct DestinationsManagementView: View {
                 yaml += "\n    secret: \(field.isSecret)"
             }
         }
+
+        // Append `next:` block if the destination has a chain. Empty chain → no-op.
+        yaml += ExtensionParser.emitChainYAML(
+            dest.next,
+            destinationNames: Set(settings.outputDestinations.map { $0.name })
+        )
 
         yaml += "\n"
 

@@ -154,7 +154,8 @@ struct ExtensionParser {
         let shortcut = CaiShortcut(
             name: name,
             type: .prompt,
-            value: prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            value: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+            next: parseNext(dict["next"])
         )
         return .shortcut(shortcut, author: author, description: description)
     }
@@ -166,7 +167,8 @@ struct ExtensionParser {
         let shortcut = CaiShortcut(
             name: name,
             type: .url,
-            value: url.trimmingCharacters(in: .whitespacesAndNewlines)
+            value: url.trimmingCharacters(in: .whitespacesAndNewlines),
+            next: parseNext(dict["next"])
         )
         return .shortcut(shortcut, author: author, description: description)
     }
@@ -178,7 +180,8 @@ struct ExtensionParser {
         let shortcut = CaiShortcut(
             name: name,
             type: .shell,
-            value: command.trimmingCharacters(in: .whitespacesAndNewlines)
+            value: command.trimmingCharacters(in: .whitespacesAndNewlines),
+            next: parseNext(dict["next"])
         )
         return .shortcut(shortcut, author: author, description: description)
     }
@@ -222,7 +225,8 @@ struct ExtensionParser {
             isEnabled: true,
             isBuiltIn: false,
             showInActionList: showInActionList,
-            setupFields: setupFields
+            setupFields: setupFields,
+            next: parseNext(dict["next"])
         )
         return .destination(dest, author: author, description: description)
     }
@@ -242,7 +246,8 @@ struct ExtensionParser {
             isEnabled: true,
             isBuiltIn: false,
             showInActionList: showInActionList,
-            setupFields: setupFields
+            setupFields: setupFields,
+            next: parseNext(dict["next"])
         )
         return .destination(dest, author: author, description: description)
     }
@@ -256,5 +261,81 @@ struct ExtensionParser {
             let secret = field["secret"] as? Bool ?? false
             return SetupField(key: key, isSecret: secret)
         }
+    }
+
+    // MARK: - Chain Steps
+
+    /// Parses the YAML `next:` field into `[ChainStep]`.
+    ///
+    /// **Schema:** array of one-key maps. Four recognized keys, all string-valued:
+    /// - `action: "name"` — references a local Cai action by name
+    /// - `destination: "name"` — references a local Cai destination by name
+    ///   (semantic alias for `action:` — both produce `.action(name:)` since the
+    ///   underlying `ChainExecutor` resolves shortcuts and destinations from the
+    ///   same name space; shortcuts win on collision)
+    /// - `llm: "directive"` — inline LLM step
+    /// - `apple_shortcut: "name"` — Apple Shortcuts.app shortcut by name
+    ///
+    /// Defensive: malformed entries (wrong shape, empty values, unknown keys)
+    /// are silently skipped, matching the rest of this parser's leniency. A
+    /// chain that fails to parse cleanly returns whatever steps did parse.
+    /// Empty / missing `next:` returns `[]`.
+    static func parseNext(_ raw: Any?) -> [ChainStep] {
+        guard let list = raw as? [[String: Any]] else { return [] }
+        return list.compactMap { entry in
+            // `action` and `destination` are both routed to .action(name:) — the
+            // discriminator is for authoring clarity, not runtime semantics.
+            if let name = entry["action"] as? String,
+                !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .action(name: name)
+            }
+            if let name = entry["destination"] as? String,
+                !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .action(name: name)
+            }
+            if let directive = entry["llm"] as? String,
+                !directive.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .inlineLLM(directive: directive)
+            }
+            if let name = entry["apple_shortcut"] as? String,
+                !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .appleShortcut(name: name)
+            }
+            return nil
+        }
+    }
+
+    /// Serializes `[ChainStep]` to YAML for share-as-extension. Returns an
+    /// empty string when steps are empty (no `next:` section emitted).
+    ///
+    /// `.action(name:)` steps emit either `action:` or `destination:` based on
+    /// what the user has locally — if the name matches a destination (passed
+    /// in via `destinationNames`), we emit the more semantic `destination:`
+    /// key. Falls back to `action:` for orphaned references (so the chain
+    /// shape survives the round-trip even when a referenced item has been
+    /// renamed/deleted locally).
+    ///
+    /// `destinationNames` is taken as a plain `Set<String>` (rather than the
+    /// full `CaiSettings`) so this function is trivially testable without
+    /// touching the global settings singleton.
+    ///
+    /// Quoting follows the convention used by the existing emitters in
+    /// `ShortcutsManagementView` / `DestinationsManagementView` (naive
+    /// double-quote wrapping). Pre-existing limitation; not addressed here.
+    static func emitChainYAML(_ steps: [ChainStep], destinationNames: Set<String>) -> String {
+        guard !steps.isEmpty else { return "" }
+        var yaml = "\nnext:"
+        for step in steps {
+            switch step {
+            case .action(let name):
+                let key = destinationNames.contains(name) ? "destination" : "action"
+                yaml += "\n  - \(key): \"\(name)\""
+            case .inlineLLM(let directive):
+                yaml += "\n  - llm: \"\(directive)\""
+            case .appleShortcut(let name):
+                yaml += "\n  - apple_shortcut: \"\(name)\""
+            }
+        }
+        return yaml
     }
 }

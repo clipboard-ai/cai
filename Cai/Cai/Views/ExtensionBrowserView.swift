@@ -298,21 +298,45 @@ struct ExtensionBrowserView: View {
         settings.shortcuts.append(shortcut)
         settings.installedExtensions.insert(slug)
         shellConfirmSlug = nil
+        // Shell extensions don't carry chains today (the parser doesn't read
+        // `next:` for the un-confirmed shell path because the user hasn't
+        // approved the command yet), so no chain-deps check needed here.
     }
 
     private func saveParsedExtension(_ parsed: ExtensionParser.ParsedExtension, slug: String) {
+        let importedChain: [ChainStep]
         switch parsed {
         case .shortcut(let shortcut, _, _):
+            importedChain = shortcut.next
             // Avoid duplicates by name
             if !settings.shortcuts.contains(where: { $0.name == shortcut.name }) {
                 settings.shortcuts.append(shortcut)
             }
         case .destination(let destination, _, _):
+            importedChain = destination.next
             if !settings.outputDestinations.contains(where: { $0.name == destination.name }) {
                 settings.outputDestinations.append(destination)
             }
         }
         settings.installedExtensions.insert(slug)
+
+        // If the imported chain references items not on this Mac, surface a
+        // toast so the user knows the chain isn't yet runnable end-to-end.
+        // The persistent badge on the row is the durable indicator; this toast
+        // is a one-shot heads-up at install time.
+        let missing = settings.unresolvedChainSteps(in: importedChain)
+        if !missing.isEmpty {
+            let message: String
+            if missing.count == 1 {
+                message = "Installed. Chain needs: \(missing[0])"
+            } else {
+                message = "Installed. \(missing.count) chain steps need setup"
+            }
+            NotificationCenter.default.post(
+                name: .caiShowToast, object: nil,
+                userInfo: ["message": message]
+            )
+        }
     }
 
     // MARK: - Uninstall

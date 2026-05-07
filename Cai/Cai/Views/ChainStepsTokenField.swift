@@ -110,11 +110,18 @@ struct ChainStepsTokenField: View {
     private func chip(for step: ChainStep, at index: Int) -> some View {
         switch step {
         case .action(let name):
-            chipShell {
+            // Resolution check: action references whose names aren't in the
+            // pool (built-in destinations + user actions/destinations) won't
+            // resolve at execute time. Tint the chip + show a tooltip so the
+            // user can fix the chain before running it. Common scenario:
+            // imported a community extension whose chain refs an action the
+            // user hasn't installed yet.
+            let isUnresolved = !availableCaiActionNames.contains(name)
+            chipShell(isWarning: isUnresolved) {
                 HStack(spacing: 4) {
-                    Image(systemName: "link")
+                    Image(systemName: isUnresolved ? "exclamationmark.triangle.fill" : "link")
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.caiTextSecondary)
+                        .foregroundColor(isUnresolved ? .caiError : .caiTextSecondary)
                     Text(name)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.caiTextPrimary)
@@ -122,6 +129,7 @@ struct ChainStepsTokenField: View {
                     removeButton(at: index, label: name)
                 }
             }
+            .help(isUnresolved ? "Not installed locally — chain step won't resolve until you add an action or destination named \"\(name)\"" : "")
 
         case .inlineLLM(let directive):
             chipShell {
@@ -161,23 +169,33 @@ struct ChainStepsTokenField: View {
         }
     }
 
-    private func chipShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func chipShell<Content: View>(
+        isWarning: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         // Visible-but-quiet edge: full-opacity `separatorColor` (the
         // standard macOS hairline) on a fully-saturated neutral surface.
         // Goal: chips read as clearly-bounded units against the white
         // text-background of the input field, without shouting (no indigo,
         // no shadow). Stronger than the prior 0.5-opacity treatment per
         // 2026-05-06 design feedback.
+        //
+        // When `isWarning` is true (chain step references a name that doesn't
+        // resolve locally), the fill + border tint to `caiError` so the chip
+        // reads as "this needs attention" without changing the chip's shape.
         content()
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.caiSurface)
+                    .fill(isWarning ? Color.caiError.opacity(0.08) : Color.caiSurface)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(Color.caiDivider, lineWidth: 0.5)
+                    .strokeBorder(
+                        isWarning ? Color.caiError.opacity(0.5) : Color.caiDivider,
+                        lineWidth: 0.5
+                    )
             )
     }
 

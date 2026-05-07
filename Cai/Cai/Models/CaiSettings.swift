@@ -566,6 +566,25 @@ class CaiSettings: ObservableObject {
         }
     }
 
+    // MARK: - Chain Resolution
+
+    /// Names of `.action(name:)` chain steps that don't resolve to any local
+    /// Cai action OR destination. Used to flag chains imported from extensions
+    /// whose dependencies aren't installed yet.
+    ///
+    /// Apple Shortcuts and inline LLM steps are intentionally not checked:
+    /// - `.appleShortcut`: querying Shortcuts.app is async and brittle; let
+    ///   the runtime surface a clear error if it's missing
+    /// - `.inlineLLM`: always resolvable (only requires LLM configured)
+    func unresolvedChainSteps(in next: [ChainStep]) -> [String] {
+        next.compactMap { step in
+            guard case .action(let name) = step else { return nil }
+            let resolved = shortcuts.contains { $0.name == name }
+                || outputDestinations.contains { $0.name == name }
+            return resolved ? nil : name
+        }
+    }
+
     // MARK: - Built-In Model
 
     /// Returns a display name for the current built-in model ID.

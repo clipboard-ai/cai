@@ -242,4 +242,179 @@ final class ChainExecutorTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ChainStep.self, from: encoded)
         XCTAssertEqual(decoded, original)
     }
+
+    // MARK: - ExtensionParser.parseNext (YAML chain steps)
+    //
+    // These tests live here (rather than in a dedicated ExtensionParserTests
+    // file) because they're tightly coupled to ChainStep semantics. Adding a
+    // new test file requires 4 edits to project.pbxproj — appending to this
+    // chain-themed test class is the lower-risk path with the same coverage.
+
+    func testParseNextReturnsEmptyForNilInput() {
+        XCTAssertTrue(ExtensionParser.parseNext(nil).isEmpty)
+    }
+
+    func testParseNextReturnsEmptyForWrongShape() {
+        // String, dict, and number all should return [] (defensive parsing —
+        // a malformed `next:` field should never crash the parse).
+        XCTAssertTrue(ExtensionParser.parseNext("not an array").isEmpty)
+        XCTAssertTrue(ExtensionParser.parseNext(["wrong shape": "value"]).isEmpty)
+        XCTAssertTrue(ExtensionParser.parseNext(42).isEmpty)
+    }
+
+    func testParseNextActionKeyParsesAsActionCase() {
+        let raw: [[String: Any]] = [["action": "Reformat as bullets"]]
+        let steps = ExtensionParser.parseNext(raw)
+        XCTAssertEqual(steps, [.action(name: "Reformat as bullets")])
+    }
+
+    func testParseNextDestinationKeyAliasesToActionCase() {
+        // `destination:` is a semantic alias for `action:` — both produce
+        // .action(name:) since ChainExecutor resolves shortcuts and
+        // destinations from the same name space.
+        let raw: [[String: Any]] = [["destination": "Send to Slack"]]
+        let steps = ExtensionParser.parseNext(raw)
+        XCTAssertEqual(steps, [.action(name: "Send to Slack")])
+    }
+
+    func testParseNextLLMKeyParsesAsInlineLLMCase() {
+        let raw: [[String: Any]] = [["llm": "Make it more formal"]]
+        let steps = ExtensionParser.parseNext(raw)
+        XCTAssertEqual(steps, [.inlineLLM(directive: "Make it more formal")])
+    }
+
+    func testParseNextAppleShortcutKeyParsesAsAppleShortcutCase() {
+        let raw: [[String: Any]] = [["apple_shortcut": "Send to Telegram"]]
+        let steps = ExtensionParser.parseNext(raw)
+        XCTAssertEqual(steps, [.appleShortcut(name: "Send to Telegram")])
+    }
+
+    func testParseNextMixedSequencePreservesOrder() {
+        let raw: [[String: Any]] = [
+            ["action": "Format"],
+            ["llm": "Translate"],
+            ["destination": "Slack"],
+            ["apple_shortcut": "Notify"]
+        ]
+        let steps = ExtensionParser.parseNext(raw)
+        XCTAssertEqual(steps, [
+            .action(name: "Format"),
+            .inlineLLM(directive: "Translate"),
+            .action(name: "Slack"),
+            .appleShortcut(name: "Notify")
+        ])
+    }
+
+    func testParseNextSilentlySkipsUnknownKeys() {
+        let raw: [[String: Any]] = [
+            ["action": "Valid"],
+            ["unknown_key": "Skipped"],
+            ["llm": "Also valid"]
+        ]
+        let steps = ExtensionParser.parseNext(raw)
+        XCTAssertEqual(steps, [.action(name: "Valid"), .inlineLLM(directive: "Also valid")])
+    }
+
+    func testParseNextSilentlySkipsEmptyValues() {
+        // Empty/whitespace-only strings are treated as "no value" — skipped
+        // rather than producing an empty-named step that would never resolve.
+        let raw: [[String: Any]] = [
+            ["action": ""],
+            ["action": "   "],
+            ["llm": ""],
+            ["action": "Real one"]
+        ]
+        let steps = ExtensionParser.parseNext(raw)
+        XCTAssertEqual(steps, [.action(name: "Real one")])
+    }
+
+    // MARK: - ExtensionParser.emitChainYAML
+
+    func testEmitChainYAMLEmptyChainProducesEmptyString() {
+        let yaml = ExtensionParser.emitChainYAML([], destinationNames: [])
+        XCTAssertEqual(yaml, "")
+    }
+
+    func testEmitChainYAMLActionWithoutLocalDestinationMatchEmitsActionKey() {
+        // No destination named "Format" exists locally → emit `action:` (the
+        // import-side parser will route it to .action(name:) regardless).
+        let yaml = ExtensionParser.emitChainYAML(
+            [.action(name: "Format")],
+            destinationNames: ["Email", "Notes"]
+        )
+        XCTAssertTrue(yaml.contains("action: \"Format\""), "Expected `action:` key, got: \(yaml)")
+    }
+
+    func testEmitChainYAMLActionMatchingLocalDestinationEmitsDestinationKey() {
+        // "Send to Slack" exists in destinationNames → emit semantically
+        // correct `destination:` key.
+        let yaml = ExtensionParser.emitChainYAML(
+            [.action(name: "Send to Slack")],
+            destinationNames: ["Send to Slack", "Email"]
+        )
+        XCTAssertTrue(yaml.contains("destination: \"Send to Slack\""), "Expected `destination:` key, got: \(yaml)")
+    }
+
+    func testEmitChainYAMLInlineLLMEmitsLLMKey() {
+        let yaml = ExtensionParser.emitChainYAML(
+            [.inlineLLM(directive: "Make it formal")],
+            destinationNames: []
+        )
+        XCTAssertTrue(yaml.contains("llm: \"Make it formal\""), "Expected `llm:` key, got: \(yaml)")
+    }
+
+    func testEmitChainYAMLAppleShortcutEmitsAppleShortcutKey() {
+        let yaml = ExtensionParser.emitChainYAML(
+            [.appleShortcut(name: "Notify family")],
+            destinationNames: []
+        )
+        XCTAssertTrue(yaml.contains("apple_shortcut: \"Notify family\""), "Expected `apple_shortcut:` key, got: \(yaml)")
+    }
+
+    // MARK: - Round-trip: emit → parse should yield identical chain
+
+    func testEmitParseRoundTripPreservesChain() throws {
+        let original: [ChainStep] = [
+            .action(name: "Local Action"),
+            .inlineLLM(directive: "Be concise"),
+            .action(name: "Local Destination"),     // resolves as destination on emit
+            .appleShortcut(name: "Apple Notify")
+        ]
+        let yaml = ExtensionParser.emitChainYAML(
+            original,
+            destinationNames: ["Local Destination"]
+        )
+
+        // Re-parse via the full ExtensionParser flow (Yams + parseNext) by
+        // wrapping the emitted `next:` block in a minimal valid extension.
+        let fullYAML = """
+        # cai-extension
+        name: Round Trip Test
+        type: prompt
+        prompt: "irrelevant"\(yaml)
+        """
+        let parsed = try ExtensionParser.parse(fullYAML)
+        guard case .shortcut(let shortcut, _, _) = parsed else {
+            XCTFail("Expected shortcut, got destination")
+            return
+        }
+        XCTAssertEqual(shortcut.next, original)
+    }
+
+    // MARK: - Backward compat: extensions without `next:` still parse
+
+    func testExtensionWithoutNextFieldYieldsEmptyChain() throws {
+        let yaml = """
+        # cai-extension
+        name: No Chain
+        type: prompt
+        prompt: "Just a prompt"
+        """
+        let parsed = try ExtensionParser.parse(yaml)
+        guard case .shortcut(let shortcut, _, _) = parsed else {
+            XCTFail("Expected shortcut")
+            return
+        }
+        XCTAssertTrue(shortcut.next.isEmpty)
+    }
 }

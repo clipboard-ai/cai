@@ -322,6 +322,9 @@ struct ShortcutsManagementView: View {
         // Show the pin glyph when pinned (always) or hovered (progressive disclosure
         // for unpinned rows — same pattern as `ClipboardHistoryView.historyRow`).
         let showPinIcon = shortcut.pinned || isHovered
+        // Names the chain references that aren't installed locally — flagged
+        // via a warning glyph so the user can fix the chain before running it.
+        let unresolvedSteps = settings.unresolvedChainSteps(in: shortcut.next)
 
         return HStack(spacing: 12) {
             // Leading icon — doubles as pin toggle on hover.
@@ -360,6 +363,15 @@ struct ShortcutsManagementView: View {
                     .foregroundColor(.caiTextSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+            }
+
+            // Chain dependency warning — shown when `next:` references local
+            // actions/destinations the user doesn't have installed yet.
+            if !unresolvedSteps.isEmpty {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.caiError)
+                    .help("Chain needs: \(unresolvedSteps.joined(separator: ", "))")
             }
 
             Spacer()
@@ -981,6 +993,12 @@ struct ShortcutsManagementView: View {
                 .map { "  \($0)" }.joined(separator: "\n")
             yaml += "command: |\n\(indented)\n"
         }
+
+        // Append `next:` block if the shortcut has a chain. Empty chain → no-op.
+        yaml += ExtensionParser.emitChainYAML(
+            shortcut.next,
+            destinationNames: Set(settings.outputDestinations.map { $0.name })
+        )
 
         SystemActions.copyToClipboard(yaml)
 
