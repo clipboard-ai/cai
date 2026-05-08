@@ -7,7 +7,7 @@
 <h3 align="center">Act on anything. Locally. </h3>
 
 <p align="center">
-  Select any text or image and transform with custom AI, scripts, shortcuts and more. Zero app switching. 
+  Select any text or image. Run custom AI actions, chain them into pipelines, and route results anywhere. Zero app switching.
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 
 ## What
 
-Select any text or image anywhere, press **⌥C**, and run AI prompts, shell scripts, or connectors like GitHub and Linear **without the app switching**. One hotkey, no config, everything runs locally.
+Select any text or image anywhere, press **⌥C**, and run AI prompts, shell scripts, and connectors like GitHub and Linear. Chain them into pipelines that fire on a single keystroke. **Without the app switching.** One hotkey, no config, everything runs locally.
 
 No cloud. No telemetry. No accounts.
 
@@ -51,6 +51,8 @@ No cloud. No telemetry. No accounts.
 - Select `"Let's meet Tuesday at 3pm at Starbucks"` → Create calendar event, Open in Maps
 - Select an email in Mail → Reply, Summarize, Translate
 
+**Chain example:** Select an article URL → fetch the page → summarize → post to Slack. Four steps. One ⌥C.
+
 → [Read the full How It Works guide](https://getcai.app/docs/usage/how-it-works/)
 
 ## Features
@@ -59,6 +61,7 @@ No cloud. No telemetry. No accounts.
 - **Built-in AI** — [Apple Intelligence](https://getcai.app/docs/getting-started/llm-setup/) on macOS 26+, or in-process MLX inference on Apple Silicon. No server, no cloud, no setup
 - **GitHub & Linear** — create issues from any selected text with AI-generated title, body, and duplicate detection
 - **Custom actions** — save reusable AI prompts, URL templates, and shell commands as one-click actions
+- **[Action chains](https://getcai.app/docs/usage/action-chains/)** — pipe selection through AI prompts, scripts, and destinations (Slack, GitHub, Apple Shortcuts) in one keystroke. Save the chain once, run it forever.
 - **Image to Text** — on-device OCR via Apple Vision framework
 - **Bring your own LLM** — works with [LM Studio](https://lmstudio.ai/), [Ollama](https://ollama.com/), any OpenAI-compatible server, or any model from [HuggingFace mlx-community](https://huggingface.co/mlx-community)
 
@@ -119,6 +122,7 @@ Full documentation is at [getcai.app/docs](https://getcai.app/docs/):
 - **[Choosing a Model](https://getcai.app/docs/getting-started/llm-setup/#choosing-a-model)** — model picker guide and quantization explainer
 - **[Ask AI](https://getcai.app/docs/usage/custom-actions/)** — free-form prompts on selected text
 - **[Custom Actions](https://getcai.app/docs/usage/saved-actions/)** — save prompts, URLs, and shell commands
+- **[Action Chains](https://getcai.app/docs/usage/action-chains/)** — chain custom actions, destinations, and Apple Shortcuts into one-keystroke pipelines
 - **[Custom Destinations](https://getcai.app/docs/usage/destinations/)** — webhooks, AppleScript, deeplinks, shell
 - **[Connectors](https://getcai.app/docs/usage/connectors/)** — GitHub and Linear integration
 - **[Context Snippets](https://getcai.app/docs/usage/context-snippets/)** — per-app context for smarter actions
