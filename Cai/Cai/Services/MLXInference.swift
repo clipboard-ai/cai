@@ -83,8 +83,21 @@ actor MLXInference {
             return
         }
 
-        // Start a fresh load. Cancel any in-flight load for a different model first.
-        loadingTask?.cancel()
+        // Start a fresh load. Cancel + DRAIN any in-flight load before we
+        // touch shared state. mlx-swift uses a process-global C++
+        // ThreadPool; cancellation at the Swift level doesn't propagate
+        // synchronously into the C++ work, so without the drain we can
+        // unload+restart while the cancelled load's `loadWeights` is still
+        // calling `eval` — that races with the pool's tear-down/replacement
+        // and crashes with the fatal "[ThreadPool::enqueue] Not allowed on
+        // stopped ThreadPool" assertion (Sentry 117994472, observed when
+        // rapid-switching between models in Settings → AI). Awaiting the
+        // cancelled task lets the C++ pool work settle before we call
+        // `unload()` and start the new load.
+        if let previous = loadingTask {
+            previous.cancel()
+            _ = try? await previous.value
+        }
         if modelContainer != nil { unload() }
         configureMemory()
         print("🧠 MLX loading model: \(id)")
