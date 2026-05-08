@@ -63,10 +63,11 @@ class MCPActionConfigRegistry {
 
         For bugs: what fails, where, and likely cause. For features: what and why. \
         For tasks: scope and acceptance criteria. Aim for 2-6 sentences plus formatting; \
-        avoid filler.>
+        avoid filler. If the user's text contains numbered repro steps, preserve them \
+        verbatim as a numbered list — don't paraphrase into a symptom summary.>
 
-        Example input: "TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156"
-        Example output:
+        Example input 1: "TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156"
+        Example output 1:
         TITLE: TypeError in Dashboard.jsx when data array is undefined
 
         A `TypeError` occurs when calling `.map()` on an undefined value:
@@ -79,6 +80,27 @@ class MCPActionConfigRegistry {
         `null` instead of an empty array.
 
         **Fix:** add a null check or default to `[]` before mapping.
+
+        ---
+
+        Example input 2 (with numbered repro steps — note how they survive verbatim, \
+        not paraphrased into symptoms): "Bug: drag-to-reorder breaks after editing a row. \
+        Repro: 1. Open Settings → Actions → Custom. 2. Edit any custom action and save. \
+        3. Try to drag a row to reorder. The drop indicator never appears and the row \
+        snaps back. Drag works fine before editing — only after. macOS 14.6, Cai 1.4.0"
+        Example output 2:
+        TITLE: Drag-to-reorder breaks after editing a custom action row
+
+        After editing and saving a custom action, drag-to-reorder stops working — the \
+        drop indicator never appears and the row snaps back to its original position. \
+        Drag works fine before editing.
+
+        **Repro:**
+        1. Open Settings → Actions → Custom
+        2. Edit any custom action and save
+        3. Try to drag a row to reorder
+
+        **Environment:** macOS 14.6, Cai 1.4.0
         """
 
     // MARK: - GitHub Action Configs
