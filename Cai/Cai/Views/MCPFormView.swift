@@ -1069,8 +1069,21 @@ struct MCPFormView: View {
     private func parseLLMResponse(_ response: String) -> (title: String, body: String) {
         var trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Strip markdown fences that small models commonly produce
-        trimmed = trimmed.replacingOccurrences(of: "```", with: "")
+        // Strip an OUTER code fence if the LLM wrapped the whole response in
+        // one (small models occasionally produce ```text...``` or
+        // ```markdown...``` around their answer). Inner code fences in the
+        // body are legitimate — stack traces, code snippets — and must
+        // survive for markdown rendering on GitHub / Linear, so we don't
+        // strip globally.
+        if trimmed.hasPrefix("```") {
+            if let firstNewline = trimmed.firstIndex(of: "\n") {
+                trimmed = String(trimmed[trimmed.index(after: firstNewline)...])
+            }
+            if trimmed.hasSuffix("```") {
+                trimmed = String(trimmed.dropLast(3))
+            }
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         // Strip bold/italic markdown from TITLE prefix ("**TITLE:**" → "TITLE:")
         trimmed = trimmed.replacingOccurrences(of: "**TITLE:**", with: "TITLE:")
         trimmed = trimmed.replacingOccurrences(of: "**TITLE**:", with: "TITLE:")

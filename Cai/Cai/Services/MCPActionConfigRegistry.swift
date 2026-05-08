@@ -43,22 +43,42 @@ class MCPActionConfigRegistry {
     // MARK: - Shared Prompts
 
     /// Shared LLM system prompt for ticket creation (used by GitHub + Linear).
+    /// GitHub and Linear both render markdown in issue bodies, so we encourage
+    /// the LLM to use it where it helps (code blocks for stack traces, bullets
+    /// for distinct details, bold for emphasis). The only formatting constraint
+    /// is "do not wrap the whole response in a code fence" — that would break
+    /// the `TITLE: ...` prefix parser. Inner code fences are preserved by
+    /// `MCPFormView.parseLLMResponse` so stack traces survive.
     private static let ticketCreationSystemPrompt = """
         Create a ticket from the user's text. Classify as bug, feature, or task.
-        Output EXACTLY in this format — no markdown fences, no extra text:
+        Output EXACTLY in this format. Do NOT wrap the entire response in a code fence:
 
         TITLE: <specific, actionable title under 80 chars>
 
-        <2-4 sentence description. For bugs: what fails, where, and likely cause. \
-        For features: what and why. For tasks: scope and acceptance criteria.>
+        <Description in markdown. GitHub and Linear render markdown — use it where it helps:
+        - **Bold** for key terms
+        - Bullet lists for steps, options, or distinct details
+        - ```code blocks``` for stack traces, error messages, or code snippets
+        - Inline `code` for variable names, paths, function names
+
+        For bugs: what fails, where, and likely cause. For features: what and why. \
+        For tasks: scope and acceptance criteria. Aim for 2-6 sentences plus formatting; \
+        avoid filler.>
 
         Example input: "TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156"
         Example output:
         TITLE: TypeError in Dashboard.jsx when data array is undefined
 
-        A TypeError occurs at Dashboard.jsx:156 when calling .map() on an undefined value. \
-        Likely caused by missing data initialization or a failed API response returning null \
-        instead of an empty array. Add a null check or default to [] before mapping.
+        A `TypeError` occurs when calling `.map()` on an undefined value:
+
+        ```
+        TypeError: Cannot read property 'map' of undefined at Dashboard.jsx:156
+        ```
+
+        **Likely cause:** missing data initialization or a failed API response returning \
+        `null` instead of an empty array.
+
+        **Fix:** add a null check or default to `[]` before mapping.
         """
 
     // MARK: - GitHub Action Configs
