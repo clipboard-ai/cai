@@ -277,19 +277,29 @@ struct ShortcutsManagementView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        // Auto-scroll the form into view when entering edit / add mode so
-        // the screen doesn't appear to "jump" when the form expands below
-        // the fold. Animated to match the form's open transition.
+        // Auto-scroll the form into view when entering edit / add mode.
+        //
+        // Deferred to fire AFTER the form's open animation completes
+        // (`beginAdding` / `beginEditing` use `withAnimation(0.2)` to expand
+        // the row). One runloop tick (`DispatchQueue.main.async`) wasn't
+        // enough — scrollTo resolved while the row was still mid-animation
+        // and at a smaller intermediate size, so it under-scrolled and the
+        // form ended up half off-screen. Waiting ~220 ms (animation 0.2 s
+        // + a small buffer for layout settle) gets a stable final size.
         .onChange(of: editingShortcutId) { _, newId in
             guard let id = newId else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                proxy.scrollTo(id, anchor: .top)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(id, anchor: .top)
+                }
             }
         }
         .onChange(of: isAddingNew) { _, isAdding in
             guard isAdding else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                proxy.scrollTo("addNewShortcut", anchor: .top)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo("addNewShortcut", anchor: .top)
+                }
             }
         }
         }  // end ScrollViewReader

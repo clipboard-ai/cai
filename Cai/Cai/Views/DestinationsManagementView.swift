@@ -123,16 +123,25 @@ struct DestinationsManagementView: View {
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
+                    // Deferred ~220 ms to fire AFTER the form's open animation
+                    // completes (`beginAddingDestination` uses `withAnimation(0.15)`).
+                    // See the same comment in `ShortcutsManagementView` — single
+                    // `DispatchQueue.main.async` wasn't enough because scrollTo
+                    // resolved against the form's intermediate animated size.
                     .onChange(of: isAddingNew) { _, isAdding in
                         guard isAdding else { return }
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            proxy.scrollTo("addNewDestination", anchor: .top)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo("addNewDestination", anchor: .top)
+                            }
                         }
                     }
                     .onChange(of: editingDestinationId) { _, newId in
                         guard let id = newId else { return }
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            proxy.scrollTo(id, anchor: .top)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo(id, anchor: .top)
+                            }
                         }
                     }
                 }

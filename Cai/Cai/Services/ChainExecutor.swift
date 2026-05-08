@@ -162,12 +162,12 @@ final class ChainExecutor {
                 visited: [],
                 depth: 0
             )
-            // Toast with last step's label + brief output snippet (trimmed,
-            // first 80 chars) so the user knows the chain completed. Inline
-            // LLM steps surface their directive; this is fine — the chain
-            // user just composed it, so they recognize it.
-            let snippet = String(finalOutput.prefix(80))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Toast with a sanitized snippet (collapsed whitespace, capped at
+            // 60 chars) so the user sees the chain produced something. The
+            // toast pill is single-line AppKit, so internal newlines from
+            // multi-line LLM output (e.g. markdown lists, bullets) blow out
+            // the pill's layout — collapse them to spaces before showing.
+            let snippet = singleLineSnippet(from: finalOutput, maxChars: 60)
             let lastStepLabel = steps.last?.displayLabel ?? "chain"
             let message = snippet.isEmpty
                 ? "Done — \(lastStepLabel)"
@@ -184,6 +184,18 @@ final class ChainExecutor {
                 userInfo: ["message": "Chain failed: \(error.localizedDescription)"]
             )
         }
+    }
+
+    /// Collapses whitespace runs (including newlines and tabs) into single spaces,
+    /// trims edges, and truncates to `maxChars` with a trailing `…` if the
+    /// original was longer. Used for toast/snippet display where multi-line
+    /// LLM output would otherwise blow out a single-line pill's layout.
+    private func singleLineSnippet(from text: String, maxChars: Int) -> String {
+        let collapsed = text
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard collapsed.count > maxChars else { return collapsed }
+        return String(collapsed.prefix(maxChars)) + "…"
     }
 
     // MARK: - Recursive executor
