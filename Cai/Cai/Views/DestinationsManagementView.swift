@@ -32,13 +32,19 @@ struct DestinationsManagementView: View {
 
     /// Pool of names available for chain autocomplete. All custom shortcuts +
     /// all output destinations except the one being edited (chaining to self
-    /// is a cycle the executor would catch, but suggesting it is misleading).
+    /// is a cycle the executor would catch, but suggesting it is misleading)
+    /// + chainable built-in actions (LLM transforms). Resolver in
+    /// `ChainExecutor` prefers user shortcuts on collision so users can
+    /// override a built-in by naming a custom action the same.
     private func availableChainNames(excluding excludeId: UUID?) -> [String] {
         let shortcutNames = settings.shortcuts.map(\.name)
         let destinationNames = settings.outputDestinations
             .filter { $0.id != excludeId }
             .map(\.name)
-        return shortcutNames + destinationNames
+        let builtInActionNames = BuiltInActionID.allCases
+            .filter { $0.isChainable }
+            .map(\.displayLabel)
+        return shortcutNames + destinationNames + builtInActionNames
     }
 
     // AppleScript

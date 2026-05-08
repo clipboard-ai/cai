@@ -109,11 +109,17 @@ final class ChainExecutor {
     enum ResolvedAction {
         case shortcut(CaiShortcut)
         case destination(OutputDestination)
+        /// Built-in LLM action (Summarize, Explain, Reply, Fix Grammar, Translate).
+        /// Only the chainable subset of `BuiltInActionID` reaches this case —
+        /// see `BuiltInActionID.isChainable`. Built-ins have no recursive
+        /// `next:` of their own (they're leaf transforms).
+        case builtIn(BuiltInActionID)
 
         var name: String {
             switch self {
             case .shortcut(let s): return s.name
             case .destination(let d): return d.name
+            case .builtIn(let id): return id.displayLabel
             }
         }
 
@@ -121,6 +127,7 @@ final class ChainExecutor {
             switch self {
             case .shortcut(let s): return s.next
             case .destination(let d): return d.next
+            case .builtIn: return []  // built-ins are leaf transforms
             }
         }
     }
@@ -258,11 +265,22 @@ final class ChainExecutor {
         if let injected = injectedResolver {
             return injected(name)
         }
+        // Resolution order (user customizations win):
+        //   1. User-defined shortcuts
+        //   2. User + built-in destinations (both live in `outputDestinations`)
+        //   3. Built-in chainable actions
+        // A user shortcut named "Translate" intentionally beats the built-in
+        // Translate — same precedence as the action-list dispatch.
         if let shortcut = CaiSettings.shared.shortcuts.first(where: { $0.name == name }) {
             return .shortcut(shortcut)
         }
         if let dest = CaiSettings.shared.outputDestinations.first(where: { $0.name == name }) {
             return .destination(dest)
+        }
+        if let builtIn = BuiltInActionID.allCases.first(where: {
+            $0.isChainable && $0.displayLabel == name
+        }) {
+            return .builtIn(builtIn)
         }
         return nil
     }
@@ -351,7 +369,43 @@ final class ChainExecutor {
             // subsequent step (typically another destination) gets the same
             // content. See the doc comment at the top of the file.
             return input
+        case .builtIn(let id):
+            return try await runBuiltIn(id, input: input, sourceBundleId: sourceBundleId)
         }
+    }
+
+    // MARK: - Built-in action step
+    //
+    // Dispatches built-in LLM actions (Summarize, Explain, Reply, Fix Grammar,
+    // Translate) using their tuned prompts from `LLMService.prompts(for:)`.
+    // Same wrapping as `runPrompt` and `runInlineLLM` — About You + Context
+    // Snippet via `buildMessages` — so behavior is consistent across all
+    // chain step types.
+
+    private func runBuiltIn(
+        _ id: BuiltInActionID,
+        input: String,
+        sourceBundleId: String?
+    ) async throws -> String {
+        let llmAction = await MainActor.run { id.toLLMAction() }
+        guard let llmAction else {
+            // Defensive: resolve() filtered to isChainable, so this is a code
+            // bug rather than a user-facing one. Surface it clearly.
+            throw ChainError.invalidStep("Built-in action '\(id.displayLabel)' is not chainable")
+        }
+        let prompts = LLMService.prompts(for: llmAction, text: input, appContext: nil)
+        let aboutYou = await MainActor.run { CaiSettings.shared.aboutYou }
+        let snippet = ContextSnippetsManager.shared.snippet(forBundleId: sourceBundleId)
+
+        let messages = LLMService.buildMessages(
+            systemPrompt: prompts.system,
+            userPrompt: prompts.user,
+            aboutYou: aboutYou,
+            snippet: snippet
+        )
+
+        let response = try await LLMService.shared.generateWithMessages(messages)
+        return response.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Inline LLM step

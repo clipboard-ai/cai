@@ -100,4 +100,39 @@ enum BuiltInActionID: String, CaseIterable {
             return .typeSpecific
         }
     }
+
+    /// Whether this built-in action can appear as a chain step in the
+    /// `ChainStepsTokenField` autocomplete and resolve at execute time.
+    ///
+    /// We include only **pure LLM transforms** — actions that take text input
+    /// and produce text output. External side-effects (Open in Browser, Open
+    /// in Maps, Create Calendar Event, Search Web) are chain-terminating and
+    /// would create a confusing dead-end. Ask AI opens a UI dialog (not
+    /// programmatic). Define Word requires single-word input. Pretty Print
+    /// JSON is non-LLM and would need its own dispatch path; deferred for a
+    /// follow-up if there's demand.
+    var isChainable: Bool {
+        switch self {
+        case .summarize, .explain, .reply, .proofread, .translate:
+            return true
+        case .askAI, .searchWeb, .defineWord, .openURL, .openMaps, .createEvent, .prettyPrint:
+            return false
+        }
+    }
+
+    /// Converts this built-in to its corresponding `LLMAction` for chain
+    /// dispatch. Returns nil for non-chainable actions. Translate uses the
+    /// user's preferred language from `CaiSettings.translationLanguage`.
+    @MainActor
+    func toLLMAction() -> LLMAction? {
+        switch self {
+        case .summarize: return .summarize
+        case .explain: return .explain
+        case .reply: return .reply
+        case .proofread: return .proofread
+        case .translate: return .translate(CaiSettings.shared.translationLanguage)
+        case .askAI, .searchWeb, .defineWord, .openURL, .openMaps, .createEvent, .prettyPrint:
+            return nil
+        }
+    }
 }

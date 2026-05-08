@@ -39,14 +39,20 @@ struct ShortcutsManagementView: View {
 
     /// Pool of names available for chain autocomplete. All custom shortcuts
     /// (excluding the one being edited, since chaining to self is a cycle)
-    /// + all output destinations. Computed on each render so settings
-    /// changes propagate without refresh.
+    /// + all output destinations + chainable built-in actions (the LLM-powered
+    /// transforms — Summarize, Explain, Reply, Fix Grammar, Translate). The
+    /// resolver in `ChainExecutor` prefers user shortcuts on collision so
+    /// users can override a built-in by naming a custom action the same.
+    /// Computed on each render so settings changes propagate without refresh.
     private func availableChainNames(excluding excludeId: UUID?) -> [String] {
         let shortcutNames = settings.shortcuts
             .filter { $0.id != excludeId }
             .map(\.name)
         let destinationNames = settings.outputDestinations.map(\.name)
-        return shortcutNames + destinationNames
+        let builtInActionNames = BuiltInActionID.allCases
+            .filter { $0.isChainable }
+            .map(\.displayLabel)
+        return shortcutNames + destinationNames + builtInActionNames
     }
     /// Tracks whether the *previous* known formValue contained `|llm`. Used by
     /// the auto-enable heuristic for "Run in background" so we only fire on

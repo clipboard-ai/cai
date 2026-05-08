@@ -417,4 +417,62 @@ final class ChainExecutorTests: XCTestCase {
         }
         XCTAssertTrue(shortcut.next.isEmpty)
     }
+
+    // MARK: - Built-in action chainability
+    //
+    // End-to-end LLM dispatch isn't covered here (would need to mock
+    // LLMService); these tests pin down the chainability contract and the
+    // `ResolvedAction.builtIn` shape that `runAction` switches on.
+
+    func testIsChainableTrueForLLMTransforms() {
+        // The five LLM-powered transforms should be chain-eligible.
+        XCTAssertTrue(BuiltInActionID.summarize.isChainable)
+        XCTAssertTrue(BuiltInActionID.explain.isChainable)
+        XCTAssertTrue(BuiltInActionID.reply.isChainable)
+        XCTAssertTrue(BuiltInActionID.proofread.isChainable)
+        XCTAssertTrue(BuiltInActionID.translate.isChainable)
+    }
+
+    func testIsChainableFalseForSideEffectsAndUIActions() {
+        // External side-effect actions can't continue a chain (no text out).
+        XCTAssertFalse(BuiltInActionID.openURL.isChainable)
+        XCTAssertFalse(BuiltInActionID.openMaps.isChainable)
+        XCTAssertFalse(BuiltInActionID.createEvent.isChainable)
+        XCTAssertFalse(BuiltInActionID.searchWeb.isChainable)
+        // Ask AI is a UI dialog; Define Word requires single-word input;
+        // Pretty Print JSON is non-LLM (deferred).
+        XCTAssertFalse(BuiltInActionID.askAI.isChainable)
+        XCTAssertFalse(BuiltInActionID.defineWord.isChainable)
+        XCTAssertFalse(BuiltInActionID.prettyPrint.isChainable)
+    }
+
+    func testToLLMActionMapsChainableCases() async {
+        let summarize = await MainActor.run { BuiltInActionID.summarize.toLLMAction() }
+        if case .summarize = summarize { /* pass */ } else {
+            XCTFail("Expected .summarize, got \(String(describing: summarize))")
+        }
+        let proofread = await MainActor.run { BuiltInActionID.proofread.toLLMAction() }
+        if case .proofread = proofread { /* pass */ } else {
+            XCTFail("Expected .proofread, got \(String(describing: proofread))")
+        }
+        // Translate carries the user's preferred language.
+        let translate = await MainActor.run { BuiltInActionID.translate.toLLMAction() }
+        if case .translate = translate { /* pass */ } else {
+            XCTFail("Expected .translate(...), got \(String(describing: translate))")
+        }
+    }
+
+    func testToLLMActionReturnsNilForNonChainable() async {
+        let askAI = await MainActor.run { BuiltInActionID.askAI.toLLMAction() }
+        XCTAssertNil(askAI)
+        let openURL = await MainActor.run { BuiltInActionID.openURL.toLLMAction() }
+        XCTAssertNil(openURL)
+    }
+
+    func testResolvedActionBuiltInHasEmptyNextAndDisplayLabelName() {
+        let resolved = ChainExecutor.ResolvedAction.builtIn(.summarize)
+        XCTAssertEqual(resolved.name, "Summarize")
+        XCTAssertTrue(resolved.next.isEmpty,
+            "Built-ins are leaf transforms — they don't have their own `next:` chain")
+    }
 }
