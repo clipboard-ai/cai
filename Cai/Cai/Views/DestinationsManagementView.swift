@@ -30,21 +30,27 @@ struct DestinationsManagementView: View {
     /// inline LLM directives, and Apple Shortcuts.
     @State private var formNext: [ChainStep] = []
 
-    /// Pool of names available for chain autocomplete. All custom shortcuts +
-    /// all output destinations except the one being edited (chaining to self
-    /// is a cycle the executor would catch, but suggesting it is misleading)
-    /// + chainable built-in actions (LLM transforms). Resolver in
-    /// `ChainExecutor` prefers user shortcuts on collision so users can
-    /// override a built-in by naming a custom action the same.
-    private func availableChainNames(excluding excludeId: UUID?) -> [String] {
+    /// Names of Cai actions available for chain autocomplete: all user
+    /// shortcuts + chainable built-in actions (Summarize, Explain, Reply,
+    /// Fix Grammar, Translate). Kept separate from destinations so the
+    /// dropdown can section + icon them differently.
+    private var availableActionNames: [String] {
         let shortcutNames = settings.shortcuts.map(\.name)
-        let destinationNames = settings.outputDestinations
-            .filter { $0.id != excludeId }
-            .map(\.name)
         let builtInActionNames = BuiltInActionID.allCases
             .filter { $0.isChainable }
             .map(\.displayLabel)
-        return shortcutNames + destinationNames + builtInActionNames
+        return shortcutNames + builtInActionNames
+    }
+
+    /// Names of all output destinations (built-in + custom) available for
+    /// chain autocomplete, excluding the one being edited (chaining to self
+    /// is a cycle the executor would catch, but suggesting it is misleading).
+    /// Resolver in `ChainExecutor` prefers user shortcuts on collision so
+    /// users can override a built-in by naming a custom action the same.
+    private func availableDestinationNames(excluding excludeId: UUID?) -> [String] {
+        settings.outputDestinations
+            .filter { $0.id != excludeId }
+            .map(\.name)
     }
 
     // AppleScript
@@ -176,12 +182,16 @@ struct DestinationsManagementView: View {
     /// (no List, no drag-to-reorder needed for the Built-in tab).
     @ViewBuilder
     private var builtInTabContent: some View {
-        ForEach(settings.outputDestinations.filter { $0.isBuiltIn }) { dest in
+        // `chainOnly` built-ins (e.g. Copy to Clipboard) are hidden from this
+        // toggle list — their toggle would be decorative since they don't
+        // appear in the result view either, and the entry would just clutter
+        // the list. They're still selectable in the chain editor autocomplete.
+        ForEach(settings.outputDestinations.filter { $0.isBuiltIn && !$0.chainOnly }) { dest in
             builtInRow(dest)
                 .padding(.horizontal, 12)
         }
 
-        if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled }) {
+        if settings.outputDestinations.contains(where: { $0.isBuiltIn && $0.isEnabled && !$0.chainOnly }) {
             Text("macOS will ask for Automation permission on first use. If denied, re-enable in System Settings → Automation.")
                 .font(.system(size: 10))
                 .foregroundColor(.caiTextSecondary.opacity(0.5))
@@ -879,7 +889,8 @@ struct DestinationsManagementView: View {
             if thenRunExpandedDest || !formNext.isEmpty {
                 ChainStepsTokenField(
                     steps: $formNext,
-                    availableCaiActionNames: availableChainNames(excluding: destinationId),
+                    availableActionNames: availableActionNames,
+                    availableDestinationNames: availableDestinationNames(excluding: destinationId),
                     placeholder: "Search actions to add..."
                 )
             }
@@ -1091,6 +1102,12 @@ struct DestinationsManagementView: View {
             // coercing to a webhook form.
             assertionFailure("pasteBack is a built-in destination and cannot be edited")
             return
+        case .clipboardCopy:
+            // clipboardCopy is a built-in chain-only destination — same
+            // contract as pasteBack: no editable fields, no Edit button
+            // rendered. Reaching here is a code-path bug.
+            assertionFailure("clipboardCopy is a built-in destination and cannot be edited")
+            return
         }
     }
 
@@ -1228,6 +1245,10 @@ struct DestinationsManagementView: View {
 
         case .pasteBack:
             // pasteBack is built-in only; not shareable as an extension.
+            return
+        case .clipboardCopy:
+            // clipboardCopy is built-in only and chain-scoped; not
+            // shareable as an extension.
             return
         }
 

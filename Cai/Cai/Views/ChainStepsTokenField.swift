@@ -33,11 +33,27 @@ import SwiftUI
 /// chip editor.
 struct ChainStepsTokenField: View {
     @Binding var steps: [ChainStep]
-    /// Pool of Cai action names available for autocomplete (the union of
-    /// shortcut + destination names visible to the user, excluding the one
-    /// being edited to prevent immediate self-cycle suggestions).
-    let availableCaiActionNames: [String]
+    /// Names of Cai actions available for autocomplete — user shortcuts +
+    /// chainable built-in actions (Summarize, Explain, etc.). Split from
+    /// destination names so the dropdown can group + icon them separately.
+    let availableActionNames: [String]
+    /// Names of output destinations available for autocomplete (built-in +
+    /// custom). Both `availableActionNames` and `availableDestinationNames`
+    /// resolve to the same `ChainStep.action(name:)` enum case at execute
+    /// time — the split is purely an authoring affordance.
+    let availableDestinationNames: [String]
     let placeholder: String
+
+    /// Combined set used for resolution checks (chip warning glyph). A name
+    /// resolves if it's in either pool — the executor doesn't distinguish.
+    private var allResolvableNames: Set<String> {
+        Set(availableActionNames).union(availableDestinationNames)
+    }
+    /// Used by chip rendering to pick the right icon (paperplane for
+    /// destinations, link for actions).
+    private var destinationNameSet: Set<String> {
+        Set(availableDestinationNames)
+    }
 
     @State private var inputText: String = ""
     @State private var appleShortcuts: [String] = []
@@ -110,16 +126,24 @@ struct ChainStepsTokenField: View {
     private func chip(for step: ChainStep, at index: Int) -> some View {
         switch step {
         case .action(let name):
-            // Resolution check: action references whose names aren't in the
-            // pool (built-in destinations + user actions/destinations) won't
-            // resolve at execute time. Tint the chip + show a tooltip so the
-            // user can fix the chain before running it. Common scenario:
-            // imported a community extension whose chain refs an action the
-            // user hasn't installed yet.
-            let isUnresolved = !availableCaiActionNames.contains(name)
+            // Resolution check: action references whose names aren't in
+            // either pool (actions or destinations) won't resolve at execute
+            // time. Tint the chip + show a tooltip so the user can fix the
+            // chain before running it. Common scenario: imported a community
+            // extension whose chain refs an action the user hasn't installed.
+            let isUnresolved = !allResolvableNames.contains(name)
+            // Distinguish actions from destinations visually. The executor
+            // treats both as `.action(name:)`, but visually a destination
+            // step is "send the result to X" (paperplane) while an action
+            // step is "transform the result via X" (link).
+            let isDestination = destinationNameSet.contains(name)
+            let icon: String = {
+                if isUnresolved { return "exclamationmark.triangle.fill" }
+                return isDestination ? "paperplane" : "link"
+            }()
             chipShell(isWarning: isUnresolved) {
                 HStack(spacing: 4) {
-                    Image(systemName: isUnresolved ? "exclamationmark.triangle.fill" : "link")
+                    Image(systemName: icon)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(isUnresolved ? .caiError : .caiTextSecondary)
                     Text(name)
@@ -310,9 +334,14 @@ struct ChainStepsTokenField: View {
 
     // MARK: - Suggestion data model
 
-    /// Anything the user can pick from the dropdown.
+    /// Anything the user can pick from the dropdown. Cai actions and
+    /// destinations are kept as separate cases so the dropdown can render
+    /// distinct sections and icons; both produce `.action(name:)` ChainStep
+    /// values at pick time (the executor doesn't distinguish them — see
+    /// `ChainExecutor.resolve`).
     fileprivate enum DropdownItem: Equatable, Hashable {
         case caiAction(name: String)
+        case caiDestination(name: String)
         case appleShortcut(name: String)
         /// "+ Inline LLM step" — directive defaults to whatever's typed.
         case inlineLLM(initialDirective: String)
@@ -325,11 +354,11 @@ struct ChainStepsTokenField: View {
 
     /// The dropdown's sections in display order, with each section's items
     /// already filtered against `inputText` and the current `steps` list.
-    /// Order: Custom step (LLM) → Cai Actions → Apple Shortcuts. Custom is
-    /// first because adding an LLM transform is the most common new-step
-    /// composition; Cai Actions next because they're already-saved building
-    /// blocks; Apple Shortcuts last because users typically have many and
-    /// scroll-to-find them.
+    /// Order: Custom step (LLM) → Cai Actions → Cai Destinations → Apple
+    /// Shortcuts. Custom is first because adding an LLM transform is the most
+    /// common new-step composition; Actions and Destinations next as the two
+    /// classes of already-saved building blocks; Apple Shortcuts last because
+    /// users typically have many and scroll-to-find them.
     private var visibleSections: [DropdownSection] {
         var sections: [DropdownSection] = []
 
@@ -338,9 +367,14 @@ struct ChainStepsTokenField: View {
             items: [.inlineLLM(initialDirective: inputText.trimmingCharacters(in: .whitespaces))]
         ))
 
-        let cai = filteredCaiActions
-        if !cai.isEmpty {
-            sections.append(DropdownSection(title: "Cai Actions", items: cai))
+        let actions = filteredCaiActions
+        if !actions.isEmpty {
+            sections.append(DropdownSection(title: "Cai Actions", items: actions))
+        }
+
+        let destinations = filteredCaiDestinations
+        if !destinations.isEmpty {
+            sections.append(DropdownSection(title: "Cai Destinations", items: destinations))
         }
 
         let shortcuts = filteredAppleShortcuts
@@ -363,10 +397,22 @@ struct ChainStepsTokenField: View {
             if case .action(let name) = step { return name.lowercased() }
             return nil
         })
-        return availableCaiActionNames
+        return availableActionNames
             .filter { !alreadyUsed.contains($0.lowercased()) }
             .filter { matches($0, query: q) }
             .map { .caiAction(name: $0) }
+    }
+
+    private var filteredCaiDestinations: [DropdownItem] {
+        let q = inputText.trimmingCharacters(in: .whitespaces).lowercased()
+        let alreadyUsed = Set(steps.compactMap { step -> String? in
+            if case .action(let name) = step { return name.lowercased() }
+            return nil
+        })
+        return availableDestinationNames
+            .filter { !alreadyUsed.contains($0.lowercased()) }
+            .filter { matches($0, query: q) }
+            .map { .caiDestination(name: $0) }
     }
 
     private var filteredAppleShortcuts: [DropdownItem] {
@@ -407,7 +453,11 @@ struct ChainStepsTokenField: View {
 
     private func pick(_ item: DropdownItem) {
         switch item {
-        case .caiAction(let name):
+        case .caiAction(let name), .caiDestination(let name):
+            // Both produce the same `.action(name:)` ChainStep. The split
+            // into separate `DropdownItem` cases is purely an authoring
+            // affordance — the executor's `resolve(_:)` figures out the
+            // actual target by looking up the name across both pools.
             steps.append(.action(name: name))
             inputText = ""
         case .appleShortcut(let name):
@@ -519,7 +569,16 @@ private struct DropdownRow: View {
     private var icon: some View {
         switch item {
         case .caiAction:
-            Image(systemName: "link")
+            // Bolt — Cai's brand mark for "action / transform / do something
+            // with the input." Same metaphor as the action-list rows.
+            Image(systemName: "bolt")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.caiTextSecondary)
+        case .caiDestination:
+            // Paperplane — universal "send / route output somewhere" metaphor.
+            // Distinguishes destinations from actions in the dropdown so users
+            // can see at a glance which kind of step they're picking.
+            Image(systemName: "paperplane")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.caiTextSecondary)
         case .appleShortcut:
@@ -535,7 +594,7 @@ private struct DropdownRow: View {
     @ViewBuilder
     private var label: some View {
         switch item {
-        case .caiAction(let name), .appleShortcut(let name):
+        case .caiAction(let name), .caiDestination(let name), .appleShortcut(let name):
             Text(name)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.caiTextPrimary)

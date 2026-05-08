@@ -65,7 +65,22 @@ struct BuiltInDestinations {
         showInActionList: false
     )
 
+    /// Writes chain output to NSPasteboard so the user can paste / inspect via
+    /// clipboard history after a multi-step chain finishes. Marked `chainOnly`
+    /// so it only surfaces in chain editor autocomplete — outside chains, the
+    /// "Enter on a result copies it" affordance already covers the same need.
+    static let clipboard = OutputDestination(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
+        name: "Copy to Clipboard",
+        icon: "doc.on.clipboard",
+        type: .clipboardCopy,
+        isEnabled: true,
+        isBuiltIn: true,
+        showInActionList: false,
+        chainOnly: true
+    )
+
     /// All built-in destinations, seeded on first launch.
     /// Order matters — it drives Cmd+1, Cmd+2, … shortcuts in the result view.
-    static let all: [OutputDestination] = [pasteBack, email, notes, reminders]
+    static let all: [OutputDestination] = [pasteBack, email, notes, reminders, clipboard]
 }

@@ -37,22 +37,28 @@ struct ShortcutsManagementView: View {
     /// collision with destinations.
     @State private var formNext: [ChainStep] = []
 
-    /// Pool of names available for chain autocomplete. All custom shortcuts
-    /// (excluding the one being edited, since chaining to self is a cycle)
-    /// + all output destinations + chainable built-in actions (the LLM-powered
-    /// transforms — Summarize, Explain, Reply, Fix Grammar, Translate). The
-    /// resolver in `ChainExecutor` prefers user shortcuts on collision so
-    /// users can override a built-in by naming a custom action the same.
-    /// Computed on each render so settings changes propagate without refresh.
-    private func availableChainNames(excluding excludeId: UUID?) -> [String] {
+    /// Names of Cai actions available for chain autocomplete: user shortcuts
+    /// (excluding the one being edited — chaining to self is a cycle) plus
+    /// chainable built-in actions (Summarize, Explain, Reply, Fix Grammar,
+    /// Translate). Kept separate from destinations so the dropdown can
+    /// section + icon them differently.
+    private func availableActionNames(excluding excludeId: UUID?) -> [String] {
         let shortcutNames = settings.shortcuts
             .filter { $0.id != excludeId }
             .map(\.name)
-        let destinationNames = settings.outputDestinations.map(\.name)
         let builtInActionNames = BuiltInActionID.allCases
             .filter { $0.isChainable }
             .map(\.displayLabel)
-        return shortcutNames + destinationNames + builtInActionNames
+        return shortcutNames + builtInActionNames
+    }
+
+    /// Names of all output destinations (built-in + custom) available for
+    /// chain autocomplete. Resolver in `ChainExecutor` prefers user shortcuts
+    /// on collision so users can override a built-in by naming a custom
+    /// action the same. Computed on each render so settings changes
+    /// propagate without refresh.
+    private var availableDestinationNames: [String] {
+        settings.outputDestinations.map(\.name)
     }
     /// Tracks whether the *previous* known formValue contained `|llm`. Used by
     /// the auto-enable heuristic for "Run in background" so we only fire on
@@ -769,7 +775,8 @@ struct ShortcutsManagementView: View {
             if thenRunExpanded || !formNext.isEmpty {
                 ChainStepsTokenField(
                     steps: $formNext,
-                    availableCaiActionNames: availableChainNames(excluding: shortcutId),
+                    availableActionNames: availableActionNames(excluding: shortcutId),
+                    availableDestinationNames: availableDestinationNames,
                     placeholder: "Search actions to add..."
                 )
             }

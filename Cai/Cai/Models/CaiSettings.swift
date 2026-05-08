@@ -163,14 +163,20 @@ class CaiSettings: ObservableObject {
         }
     }
 
-    /// Destinations that are enabled (shown in result view footer)
+    /// Destinations that are enabled (shown in result view footer).
+    /// `chainOnly` destinations are excluded — they exist purely as chain
+    /// terminal steps and surfacing them in the result view would duplicate
+    /// existing affordances (e.g. Enter on a result already copies it).
     var enabledDestinations: [OutputDestination] {
-        outputDestinations.filter { $0.isEnabled && $0.isConfigured }
+        outputDestinations.filter { $0.isEnabled && $0.isConfigured && !$0.chainOnly }
     }
 
-    /// Destinations enabled AND marked for action list display (direct routing)
+    /// Destinations enabled AND marked for action list display (direct routing).
+    /// Same `chainOnly` exclusion as `enabledDestinations`.
     var actionListDestinations: [OutputDestination] {
-        outputDestinations.filter { $0.isEnabled && $0.showInActionList && $0.isConfigured }
+        outputDestinations.filter {
+            $0.isEnabled && $0.showInActionList && $0.isConfigured && !$0.chainOnly
+        }
     }
 
     @Published var launchAtLogin: Bool {

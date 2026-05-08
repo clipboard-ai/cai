@@ -30,6 +30,13 @@ actor OutputDestinationService {
             try await executeShell(command, text: text, fields: destination.setupFields, sourceBundleId: sourceBundleId)
         case .pasteBack:
             try await executePasteBack(text: text, sourceBundleId: sourceBundleId)
+        case .clipboardCopy:
+            // Trivial sync write — bounce to MainActor since NSPasteboard is
+            // documented as main-thread-bound for write coalescing.
+            await MainActor.run {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }
         }
     }
 

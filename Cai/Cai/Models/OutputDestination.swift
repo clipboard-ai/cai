@@ -31,6 +31,14 @@ struct OutputDestination: Codable, Identifiable, Equatable {
     /// default `false`. Safe to drop in a future release alongside a
     /// `CaiSettings` migration.
     var pinned: Bool
+    /// When true, this destination is hidden from the result-view destination
+    /// chips and the built-in destinations toggle list — it only appears in
+    /// chain editor autocomplete. Used for destinations that exist purely to
+    /// give chains a meaningful terminal step (e.g. "Copy to Clipboard"),
+    /// where surfacing them outside the chain context would duplicate
+    /// existing affordances (Enter on a result already copies to clipboard,
+    /// so a "Copy to Clipboard" chip in the result view would be redundant).
+    var chainOnly: Bool
 
     init(
         id: UUID = UUID(),
@@ -42,7 +50,8 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         showInActionList: Bool = false,
         setupFields: [SetupField] = [],
         next: [ChainStep] = [],
-        pinned: Bool = false
+        pinned: Bool = false,
+        chainOnly: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -54,6 +63,7 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         self.setupFields = setupFields
         self.next = next
         self.pinned = pinned
+        self.chainOnly = chainOnly
     }
 
     /// Custom decoder — `decodeIfPresent` for fields added after v1 so
@@ -71,10 +81,11 @@ struct OutputDestination: Codable, Identifiable, Equatable {
         self.setupFields = try c.decode([SetupField].self, forKey: .setupFields)
         self.next = try c.decodeIfPresent([ChainStep].self, forKey: .next) ?? []
         self.pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        self.chainOnly = try c.decodeIfPresent(Bool.self, forKey: .chainOnly) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, icon, type, isEnabled, isBuiltIn, showInActionList, setupFields, next, pinned
+        case id, name, icon, type, isEnabled, isBuiltIn, showInActionList, setupFields, next, pinned, chainOnly
     }
 
     /// Whether all required setup fields have values
@@ -94,6 +105,12 @@ enum DestinationType: Equatable {
     /// (the app that was frontmost when Cai was invoked). No template:
     /// the LLM result text is pasted verbatim via simulated Cmd+V.
     case pasteBack
+    /// Writes the input verbatim to NSPasteboard.general. Used as a chain
+    /// terminal step so users can compose multi-step transforms and
+    /// recover the final output via paste / clipboard history. Marked
+    /// `chainOnly` on the surrounding `OutputDestination` so it doesn't
+    /// duplicate the "Enter copies" affordance in the result view.
+    case clipboardCopy
 
     var label: String {
         switch self {
@@ -102,6 +119,7 @@ enum DestinationType: Equatable {
         case .deeplink: return "Deeplink"
         case .shell: return "Shell Command"
         case .pasteBack: return "Replace Selection"
+        case .clipboardCopy: return "Copy to Clipboard"
         }
     }
 
@@ -113,6 +131,7 @@ enum DestinationType: Equatable {
         case .deeplink: return "deeplink"
         case .shell: return "shell"
         case .pasteBack: return "pasteBack"
+        case .clipboardCopy: return "clipboardCopy"
         }
     }
 }
@@ -121,7 +140,7 @@ enum DestinationType: Equatable {
 
 extension DestinationType: Codable {
     private enum CodingKeys: String, CodingKey {
-        case applescript, webhook, deeplink, shell, pasteBack
+        case applescript, webhook, deeplink, shell, pasteBack, clipboardCopy
         case urlScheme // legacy
     }
 
@@ -150,6 +169,8 @@ extension DestinationType: Codable {
             self = .shell(command: try nested.decode(String.self, forKey: .command))
         } else if container.contains(.pasteBack) {
             self = .pasteBack
+        } else if container.contains(.clipboardCopy) {
+            self = .clipboardCopy
         } else {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: decoder.codingPath,
@@ -176,6 +197,9 @@ extension DestinationType: Codable {
         case .pasteBack:
             // No associated value: presence of the key is the signal.
             try container.encode(true, forKey: .pasteBack)
+        case .clipboardCopy:
+            // Same convention as `pasteBack` — presence is the signal.
+            try container.encode(true, forKey: .clipboardCopy)
         }
     }
 }
